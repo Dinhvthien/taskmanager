@@ -20,6 +20,7 @@ const DepartmentUsersPage = () => {
   const [selectedUser, setSelectedUser] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [roles, setRoles] = useState([])
+  const [departmentsLoaded, setDepartmentsLoaded] = useState(false)
   const [editFormData, setEditFormData] = useState({
     fullName: '',
     email: '',
@@ -39,12 +40,15 @@ const DepartmentUsersPage = () => {
   }, [])
 
   useEffect(() => {
-    if (selectedDepartment) {
+    if (departmentsLoaded && selectedDepartment) {
       loadUsers()
       loadDepartmentInfo()
       loadAvailableUsers()
+    } else if (departmentsLoaded && !selectedDepartment) {
+      // Nếu đã load departments xong nhưng không có department nào, set loading = false
+      setLoading(false)
     }
-  }, [selectedDepartment])
+  }, [selectedDepartment, departmentsLoaded])
 
   useEffect(() => {
     loadRoles()
@@ -62,6 +66,9 @@ const DepartmentUsersPage = () => {
       }
     } catch (err) {
       setError('Lỗi khi tải danh sách departments')
+      setDepartments([])
+    } finally {
+      setDepartmentsLoaded(true)
     }
   }
 

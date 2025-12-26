@@ -22,6 +22,7 @@ const CompanyTasksPage = () => {
   const [selectedTaskForEdit, setSelectedTaskForEdit] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [validationErrors, setValidationErrors] = useState({})
+  const [departmentsLoaded, setDepartmentsLoaded] = useState(false)
   const navigate = useNavigate()
   const [formData, setFormData] = useState({
     title: '',
@@ -42,10 +43,10 @@ const CompanyTasksPage = () => {
   }, [director])
 
   useEffect(() => {
-    if (director && departments.length > 0) {
+    if (director && departmentsLoaded) {
       loadTasks()
     }
-  }, [director, currentPage, departments])
+  }, [director, currentPage, departmentsLoaded])
 
   const loadDepartments = async () => {
     if (!director) return
@@ -55,6 +56,9 @@ const CompanyTasksPage = () => {
       setDepartments(response.data.result || [])
     } catch (err) {
       console.error('Error loading departments:', err)
+      setDepartments([])
+    } finally {
+      setDepartmentsLoaded(true)
     }
   }
 
@@ -64,6 +68,7 @@ const CompanyTasksPage = () => {
       setDirector(response.data.result)
     } catch (err) {
       setError('Lỗi khi tải thông tin director')
+      setLoading(false)
     }
   }
 

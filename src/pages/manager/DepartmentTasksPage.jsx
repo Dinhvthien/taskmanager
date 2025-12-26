@@ -21,6 +21,7 @@ const DepartmentTasksPage = () => {
   const [selectedUserIds, setSelectedUserIds] = useState([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [userRole, setUserRole] = useState(null)
+  const [departmentsLoaded, setDepartmentsLoaded] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   
@@ -58,11 +59,14 @@ const DepartmentTasksPage = () => {
   }
 
   useEffect(() => {
-    if (selectedDepartment) {
+    if (departmentsLoaded && selectedDepartment) {
       loadTasks()
       loadAvailableUsers()
+    } else if (departmentsLoaded && !selectedDepartment) {
+      // Nếu đã load departments xong nhưng không có department nào, set loading = false
+      setLoading(false)
     }
-  }, [selectedDepartment])
+  }, [selectedDepartment, departmentsLoaded])
 
   const loadDepartments = async () => {
     try {
@@ -88,6 +92,9 @@ const DepartmentTasksPage = () => {
       }
     } catch (err) {
       setError('Lỗi khi tải danh sách departments')
+      setDepartments([])
+    } finally {
+      setDepartmentsLoaded(true)
     }
   }
 
