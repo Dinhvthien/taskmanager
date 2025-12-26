@@ -26,7 +26,6 @@ const LoginPage = () => {
     setLoading(true)
 
     try {
-      console.log('Login request:', { endpoint: API_ENDPOINTS.AUTH.LOGIN, baseURL: api.defaults.baseURL })
       const response = await api.post(API_ENDPOINTS.AUTH.LOGIN, formData)
       const { result } = response.data
 
@@ -55,38 +54,7 @@ const LoginPage = () => {
         navigate('/user/tasks')
       }
     } catch (err) {
-      console.error('Login error:', err)
-      console.error('Error details:', {
-        status: err.response?.status,
-        statusText: err.response?.statusText,
-        data: err.response?.data,
-        message: err.message,
-        url: err.config?.url,
-        baseURL: err.config?.baseURL
-      })
-      
-      let errorMessage = 'Đăng nhập thất bại. Vui lòng thử lại.'
-      
-      if (err.response) {
-        // Server responded with error
-        if (err.response.data?.message) {
-          errorMessage = err.response.data.message
-        } else if (err.response.status === 400) {
-          errorMessage = 'Thông tin đăng nhập không hợp lệ. Vui lòng kiểm tra lại.'
-        } else if (err.response.status === 401) {
-          errorMessage = 'Tên đăng nhập hoặc mật khẩu không đúng.'
-        } else if (err.response.status === 500) {
-          errorMessage = 'Lỗi server. Vui lòng thử lại sau.'
-        }
-      } else if (err.request) {
-        // Request was made but no response received
-        errorMessage = 'Không thể kết nối đến server. Vui lòng kiểm tra kết nối mạng.'
-      } else {
-        // Error setting up request
-        errorMessage = 'Có lỗi xảy ra. Vui lòng thử lại.'
-      }
-      
-      setError(errorMessage)
+      setError(err.response?.data?.message || 'Đăng nhập thất bại. Vui lòng thử lại.')
     } finally {
       setLoading(false)
     }
