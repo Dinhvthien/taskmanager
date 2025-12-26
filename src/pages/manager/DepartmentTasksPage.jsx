@@ -11,10 +11,12 @@ const DepartmentTasksPage = () => {
   const [tasks, setTasks] = useState([])
   const [departments, setDepartments] = useState([])
   const [selectedDepartment, setSelectedDepartment] = useState(null)
+  const [departmentInfo, setDepartmentInfo] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showAssignModal, setShowAssignModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
   const [selectedTask, setSelectedTask] = useState(null)
   const [selectedTaskForEdit, setSelectedTaskForEdit] = useState(null)
   const [availableUsers, setAvailableUsers] = useState([])
@@ -22,6 +24,13 @@ const DepartmentTasksPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [userRole, setUserRole] = useState(null)
   const [departmentsLoaded, setDepartmentsLoaded] = useState(false)
+  const [validationErrors, setValidationErrors] = useState({})
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    startDate: '',
+    endDate: ''
+  })
   const navigate = useNavigate()
   const location = useLocation()
   
@@ -62,6 +71,7 @@ const DepartmentTasksPage = () => {
     if (departmentsLoaded && selectedDepartment) {
       loadTasks()
       loadAvailableUsers()
+      loadDepartmentInfo()
     } else if (departmentsLoaded && !selectedDepartment) {
       // Nếu đã load departments xong nhưng không có department nào, set loading = false
       setLoading(false)
@@ -109,6 +119,17 @@ const DepartmentTasksPage = () => {
       setError(err.response?.data?.message || 'Lỗi khi tải danh sách tasks')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadDepartmentInfo = async () => {
+    if (!selectedDepartment) return
+
+    try {
+      const response = await departmentService.getDepartmentById(selectedDepartment)
+      setDepartmentInfo(response.data.result)
+    } catch (err) {
+      console.error('Error loading department info:', err)
     }
   }
 
@@ -200,13 +221,94 @@ const DepartmentTasksPage = () => {
     setSelectedTaskForEdit(null)
   }
 
+  const validateForm = () => {
+    const errors = {}
+    
+    // Validate title
+    if (!formData.title || formData.title.trim().length === 0) {
+      errors.title = 'Tiêu đề không được để trống'
+    } else if (formData.title.trim().length < 3) {
+      errors.title = 'Tiêu đề phải có ít nhất 3 ký tự'
+    } else if (formData.title.trim().length > 200) {
+      errors.title = 'Tiêu đề không được vượt quá 200 ký tự'
+    }
+    
+    // Validate dates
+    if (!formData.startDate) {
+      errors.startDate = 'Ngày bắt đầu không được để trống'
+    }
+    
+    if (!formData.endDate) {
+      errors.endDate = 'Ngày kết thúc không được để trống'
+    }
+    
+    if (formData.startDate && formData.endDate) {
+      const start = new Date(formData.startDate)
+      const end = new Date(formData.endDate)
+      if (end <= start) {
+        errors.endDate = 'Ngày kết thúc phải sau ngày bắt đầu'
+      }
+    }
+    
+    setValidationErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
+  const handleCreate = async (e) => {
+    e.preventDefault()
+    if (!selectedDepartment || !departmentInfo || isSubmitting) return
+
+    // Validate form
+    if (!validateForm()) {
+      return
+    }
+
+    try {
+      setIsSubmitting(true)
+      setError('')
+      setValidationErrors({})
+      const data = {
+        directorId: departmentInfo.directorId,
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        startDate: new Date(formData.startDate).toISOString(),
+        endDate: new Date(formData.endDate).toISOString(),
+        departmentIds: [selectedDepartment] // Tự động gán cho phòng ban đã chọn
+      }
+      await taskService.createTask(data)
+      setShowCreateModal(false)
+      setFormData({
+        title: '',
+        description: '',
+        startDate: '',
+        endDate: ''
+      })
+      setValidationErrors({})
+      loadTasks()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi tạo task')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   if (loading && tasks.length === 0) return <LoadingSpinner />
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Tasks của phòng ban</h1>
-        <p className="text-gray-600 mt-1">Quản lý tasks trong phòng ban của bạn</p>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 sm:mb-6 gap-3">
+        <div>
+        
+        </div>
+        {userRole === 'MANAGER' && selectedDepartment && (
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="w-full sm:w-auto bg-gradient-to-r from-green-600 to-green-700 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg sm:rounded-xl hover:from-green-700 hover:to-green-800 transition-all duration-200 shadow-lg hover:shadow-xl font-semibold flex items-center justify-center space-x-2 text-sm sm:text-base"
+          >
+            <span>+</span>
+            <span>Tạo Task</span>
+          </button>
+        )}
       </div>
 
       {error && (
@@ -485,6 +587,160 @@ const DepartmentTasksPage = () => {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Create Task Modal */}
+      <Modal
+        isOpen={showCreateModal}
+        onClose={() => {
+          if (!isSubmitting) {
+            setShowCreateModal(false)
+            setFormData({
+              title: '',
+              description: '',
+              startDate: '',
+              endDate: ''
+            })
+            setValidationErrors({})
+            setError('')
+          }
+        }}
+        title="Tạo Task mới"
+        size="lg"
+      >
+        <form onSubmit={handleCreate} className="space-y-4">
+          {selectedDepartment && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-blue-900">
+                <strong>Phòng ban:</strong> {departments.find(d => d.departmentId === selectedDepartment)?.departmentName}
+              </p>
+            </div>
+          )}
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Tiêu đề *
+            </label>
+            <input
+              type="text"
+              required
+              value={formData.title}
+              onChange={(e) => {
+                setFormData({ ...formData, title: e.target.value })
+                if (validationErrors.title) {
+                  setValidationErrors({ ...validationErrors, title: '' })
+                }
+              }}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent ${
+                validationErrors.title ? 'border-red-500' : 'border-gray-300'
+              }`}
+              maxLength={200}
+            />
+            {validationErrors.title && (
+              <p className="mt-1 text-sm text-red-600">{validationErrors.title}</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Mô tả
+            </label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              rows={4}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Ngày bắt đầu *
+              </label>
+              <input
+                type="datetime-local"
+                required
+                value={formData.startDate}
+                onChange={(e) => {
+                  setFormData({ ...formData, startDate: e.target.value })
+                  if (validationErrors.startDate) {
+                    setValidationErrors({ ...validationErrors, startDate: '' })
+                  }
+                  if (validationErrors.endDate && formData.endDate) {
+                    const end = new Date(formData.endDate)
+                    const start = new Date(e.target.value)
+                    if (end > start) {
+                      setValidationErrors({ ...validationErrors, endDate: '' })
+                    }
+                  }
+                }}
+                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent ${
+                  validationErrors.startDate ? 'border-red-500' : 'border-gray-300'
+                }`}
+              />
+              {validationErrors.startDate && (
+                <p className="mt-1 text-sm text-red-600">{validationErrors.startDate}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Ngày kết thúc *
+              </label>
+              <input
+                type="datetime-local"
+                required
+                value={formData.endDate}
+                onChange={(e) => {
+                  setFormData({ ...formData, endDate: e.target.value })
+                  if (validationErrors.endDate) {
+                    setValidationErrors({ ...validationErrors, endDate: '' })
+                  }
+                }}
+                min={formData.startDate || ''}
+                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent ${
+                  validationErrors.endDate ? 'border-red-500' : 'border-gray-300'
+                }`}
+              />
+              {validationErrors.endDate && (
+                <p className="mt-1 text-sm text-red-600">{validationErrors.endDate}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              type="button"
+              onClick={() => {
+                if (!isSubmitting) {
+                  setShowCreateModal(false)
+                  setFormData({
+                    title: '',
+                    description: '',
+                    startDate: '',
+                    endDate: ''
+                  })
+                  setValidationErrors({})
+                  setError('')
+                }
+              }}
+              disabled={isSubmitting}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            >
+              {isSubmitting && (
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              )}
+              <span>{isSubmitting ? 'Đang tạo...' : 'Tạo'}</span>
+            </button>
+          </div>
+        </form>
       </Modal>
 
       {/* Edit Task Modal */}

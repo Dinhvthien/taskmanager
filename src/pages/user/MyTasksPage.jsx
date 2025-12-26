@@ -220,8 +220,6 @@ const MyTasksPage = ({ basePath }) => {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Tasks của tôi</h1>
-          <p className="text-gray-600 mt-1">Xem và quản lý các tasks được giao cho bạn</p>
         </div>
       </div>
 

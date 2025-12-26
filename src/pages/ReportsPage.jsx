@@ -110,21 +110,19 @@ const ReportsPage = ({ role = 'super-admin' }) => {
   const getTitle = () => {
     switch (role) {
       case 'super-admin':
-        return 'Báo cáo hệ thống'
+        return ''
       case 'director':
-        return 'Báo cáo công ty'
+        return ''
       case 'manager':
-        return 'Báo cáo phòng ban'
+        return ''
       default:
-        return 'Báo cáo'
+        return ''
     }
   }
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">{getTitle()}</h1>
-        <p className="text-gray-600 mt-1">Xuất báo cáo công việc và hiệu suất</p>
       </div>
 
       {error && (

@@ -258,8 +258,6 @@ const CompanyTasksPage = () => {
     <div>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 sm:mb-6 gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900">Tasks công ty</h1>
-          <p className="text-sm sm:text-base text-gray-600 mt-1 hidden sm:block">Quản lý tasks trong công ty của bạn</p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}

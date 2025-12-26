@@ -65,7 +65,6 @@ const DepartmentInfoPage = () => {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Thông tin phòng ban</h1>
         <p className="text-gray-600 mt-1">Quản lý thông tin các phòng ban bạn quản lý</p>
       </div>
 

@@ -295,8 +295,6 @@ const DepartmentUsersPage = () => {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Nhân viên phòng ban</h1>
-          <p className="text-gray-600 mt-1">Quản lý nhân viên trong phòng ban của bạn</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
