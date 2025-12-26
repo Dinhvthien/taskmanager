@@ -431,7 +431,7 @@ const CompanyUsersPage = () => {
               const departments = userDepartments[user.userId] || []
               return (
                 <div
-                  key={user.userId}
+                key={user.userId}
                   className="bg-white rounded-xl shadow-md border border-gray-200 p-3 hover:shadow-lg transition-all"
                 >
                   {/* Header */}

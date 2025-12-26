@@ -258,7 +258,7 @@ const MyTasksPage = ({ basePath }) => {
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Lọc theo trạng thái
           </label>
-          <div className="flex space-x-2">
+        <div className="flex space-x-2">
           <button
             onClick={() => setStatusFilter('all')}
             className={`px-4 py-2 rounded-lg transition-colors ${
@@ -314,16 +314,16 @@ const MyTasksPage = ({ basePath }) => {
                 </h2>
                 <div className="h-px flex-1 bg-gray-300"></div>
               </div>
-              <div className="grid grid-cols-1 gap-4">
+      <div className="grid grid-cols-1 gap-4">
                 {deptTasks.map((task) => (
                   <div key={task.taskId} onClick={() => navigate(`${taskBasePath}/tasks/${task.taskId}`)}>
                     <TaskCard task={task} basePath={taskBasePath} />
                   </div>
                 ))}
               </div>
-            </div>
-          ))}
-        </div>
+          </div>
+        ))}
+      </div>
       ) : (
         <div className="text-center py-12">
           <p className="text-gray-500">Không có task nào</p>

@@ -22,7 +22,7 @@ import DepartmentsPage from './pages/super-admin/DepartmentsPage'
 import ReportsPage from './pages/ReportsPage'
 import MyTasksPage from './pages/user/MyTasksPage'
 import TaskDetailPage from './pages/user/TaskDetailPage'
-  
+
 function App() {
   return (
     <BrowserRouter>

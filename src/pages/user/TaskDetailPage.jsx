@@ -261,7 +261,7 @@ const TaskDetailPage = ({ basePath }) => {
               <div className="flex space-x-2">
                 {/* Chỉ Director và Manager mới được chỉnh sửa task */}
                 {(userRole === 'DIRECTOR' || userRole === 'SUPER_ADMIN' || userRole === 'MANAGER' || userRole === 'DEPARTMENT_MANAGER') && (
-                  <button
+                    <button
                     onClick={() => setShowEditModal(true)}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
                   >
@@ -269,7 +269,7 @@ const TaskDetailPage = ({ basePath }) => {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                     </svg>
                     <span>Chỉnh sửa task</span>
-                  </button>
+                    </button>
                 )}
               </div>
             </div>
@@ -525,8 +525,8 @@ const TaskDetailPage = ({ basePath }) => {
                       ))}
                     </div>
                   </div>
-                </div>
-              )}
+                  </div>
+                )}
 
               {/* Hoàn thành (nếu có) */}
               {task.completedAt && (
@@ -539,7 +539,7 @@ const TaskDetailPage = ({ basePath }) => {
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Hoàn thành</p>
                     <p className="text-sm font-semibold text-gray-900 mt-1">{formatDate(task.completedAt)}</p>
-                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -628,7 +628,7 @@ const TaskDetailPage = ({ basePath }) => {
                         </svg>
                         <span>{formatDate(item.createdAt)}</span>
                       </div>
-                    </div>
+              </div>
                   )
                 })}
               </div>
@@ -638,11 +638,11 @@ const TaskDetailPage = ({ basePath }) => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <p className="text-gray-500 text-sm">Chưa có lịch sử thay đổi</p>
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
       </div>
 
       <EditTaskModal

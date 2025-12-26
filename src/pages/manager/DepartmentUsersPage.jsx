@@ -81,7 +81,7 @@ const DepartmentUsersPage = () => {
       setError(err.response?.data?.message || 'Lỗi khi tải danh sách users')
       setUsers([])
     } finally {
-      setLoading(false)
+    setLoading(false)
     }
   }
 
@@ -151,15 +151,15 @@ const DepartmentUsersPage = () => {
         return
       }
 
-      try {
-        await departmentService.addUserToDepartment(selectedDepartment, parseInt(selectedUserId))
-        setShowAddModal(false)
-        setSelectedUserId('')
+    try {
+      await departmentService.addUserToDepartment(selectedDepartment, parseInt(selectedUserId))
+      setShowAddModal(false)
+      setSelectedUserId('')
         setAddMode('select')
-        loadUsers()
+      loadUsers()
         loadAvailableUsers()
-      } catch (err) {
-        setError(err.response?.data?.message || 'Lỗi khi thêm user vào phòng ban')
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi thêm user vào phòng ban')
       }
     } else {
       // Create new user
@@ -523,13 +523,13 @@ const DepartmentUsersPage = () => {
                 <p className="text-xs text-gray-500 mt-1">Mật khẩu tối thiểu 6 ký tự</p>
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
                   Họ và tên *
-                </label>
-                <input
+            </label>
+            <input
                   type="text"
-                  required
+              required
                   value={createFormData.fullName}
                   onChange={(e) => setCreateFormData({ ...createFormData, fullName: e.target.value })}
                   placeholder="Nhập họ và tên"
@@ -559,9 +559,9 @@ const DepartmentUsersPage = () => {
                   value={createFormData.phoneNumber}
                   onChange={(e) => setCreateFormData({ ...createFormData, phoneNumber: e.target.value })}
                   placeholder="Nhập số điện thoại (tùy chọn)"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                />
-              </div>
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            />
+          </div>
               
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-800">
