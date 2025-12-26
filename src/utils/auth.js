@@ -1,0 +1,50 @@
+// Utility functions for authentication
+
+export const getCurrentUser = () => {
+  try {
+    const userStr = localStorage.getItem('user')
+    if (!userStr) return null
+    return JSON.parse(userStr)
+  } catch (e) {
+    console.error('Error parsing user:', e)
+    return null
+  }
+}
+
+export const getCurrentUserRoles = () => {
+  const user = getCurrentUser()
+  if (!user) return []
+  
+  const roles = user.roles || []
+  // Normalize roles - có thể là string hoặc object
+  return roles.map(role => {
+    if (typeof role === 'string') return role
+    if (role && typeof role === 'object' && role.name) return role.name
+    return role
+  })
+}
+
+export const hasRole = (requiredRole) => {
+  const roles = getCurrentUserRoles()
+  return roles.includes(requiredRole)
+}
+
+export const hasAnyRole = (requiredRoles) => {
+  const userRoles = getCurrentUserRoles()
+  return requiredRoles.some(role => userRoles.includes(role))
+}
+
+export const getToken = () => {
+  return localStorage.getItem('token')
+}
+
+export const isAuthenticated = () => {
+  return !!getToken()
+}
+
+export const logout = () => {
+  localStorage.removeItem('token')
+  localStorage.removeItem('user')
+  window.location.href = '/login'
+}
+
