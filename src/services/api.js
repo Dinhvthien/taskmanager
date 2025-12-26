@@ -1,8 +1,8 @@
 import axios from 'axios'
 
-// Tạo axios instance với base URL
+// Tạo axios instance với base URL từ biến môi trường
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'https://api.dinhvanthien.shop/api',
   headers: {
     'Content-Type': 'application/json',
   },
