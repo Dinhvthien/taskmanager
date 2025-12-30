@@ -3,10 +3,344 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { taskService } from '../../services/taskService'
 import { departmentService } from '../../services/departmentService'
 import LoadingSpinner from '../../components/LoadingSpinner'
-import EditTaskModal from '../../components/EditTaskModal'
 import EvaluationModal from '../../components/EvaluationModal'
 import TaskProgressBar from '../../components/TaskProgressBar'
 import { TASK_STATUS, TASK_STATUS_LABELS, TASK_STATUS_COLORS, TASK_RATING_LABELS } from '../../utils/constants'
+
+// Component để thay đổi trạng thái task giao trực tiếp - giống TaskProgressBar
+const DirectTaskStatusUpdate = ({ task, onStatusUpdate, canUpdate = false }) => {
+  const [updating, setUpdating] = useState(false)
+  const [selectedStatus, setSelectedStatus] = useState(null)
+  const [waitingReason, setWaitingReason] = useState('')
+  const [showReasonModal, setShowReasonModal] = useState(false)
+  const [isHovered, setIsHovered] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // Trạng thái theo thứ tự - chỉ hiển thị 3 trạng thái: Đang làm -> Đang chờ -> Hoàn thành
+  const statusOrder = ['IN_PROGRESS', 'WAITING', 'COMPLETED']
+  const statusLabels = {
+    IN_PROGRESS: 'Đang làm',
+    WAITING: 'Đang chờ',
+    COMPLETED: 'Hoàn thành'
+  }
+
+  const statusColors = {
+    PENDING: 'bg-gray-400',
+    IN_PROGRESS: 'bg-blue-500',
+    WAITING: 'bg-yellow-500',
+    COMPLETED: 'bg-emerald-500'
+  }
+
+  const statusBgColors = {
+    PENDING: 'bg-gray-50 border-gray-300',
+    IN_PROGRESS: 'bg-blue-50 border-blue-300',
+    WAITING: 'bg-yellow-50 border-yellow-300',
+    COMPLETED: 'bg-emerald-50 border-emerald-300'
+  }
+
+  // Tính toán vị trí trên thanh tiến độ
+  const getStatusPosition = (status) => {
+    // Nếu status là PENDING hoặc ACCEPTED, coi như IN_PROGRESS (vị trí đầu tiên)
+    const normalizedStatus = (status === 'PENDING' || status === 'ACCEPTED') ? 'IN_PROGRESS' : status
+    const index = statusOrder.indexOf(normalizedStatus)
+    if (index === -1) return 0 // Nếu không tìm thấy, trả về 0
+    return (index / (statusOrder.length - 1)) * 100
+  }
+
+  // Normalize status: PENDING/ACCEPTED -> IN_PROGRESS cho hiển thị
+  // Sử dụng refreshKey để đảm bảo tính lại khi status thay đổi
+  const currentStatus = task?.status || 'IN_PROGRESS'
+  const displayStatus = (currentStatus === 'PENDING' || currentStatus === 'ACCEPTED') ? 'IN_PROGRESS' : currentStatus
+  // Tính lại currentPosition mỗi khi task.status hoặc refreshKey thay đổi
+  const currentPosition = getStatusPosition(displayStatus)
+  
+  // Debug log để kiểm tra (chỉ trong development)
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('DirectTaskStatusUpdate - Status changed:', { 
+        currentStatus, 
+        displayStatus, 
+        currentPosition, 
+        refreshKey,
+        taskStatus: task?.status 
+      })
+    }
+  }, [task?.status, refreshKey, currentPosition, displayStatus])
+
+  const handleStatusClick = () => {
+    if (!canUpdate) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Cannot update status - canUpdate is false')
+      }
+      return
+    }
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Opening status change modal')
+    }
+    setSelectedStatus(null)
+    // Load lý do chờ hiện tại (nếu có)
+    const currentWaitingReason = task?.waitingReason || ''
+    setWaitingReason(currentWaitingReason)
+    setShowReasonModal(true)
+  }
+
+  const handleStatusChange = async (newStatus) => {
+    if (!newStatus) return
+
+    const trimmedReason = waitingReason.trim()
+    if (newStatus === 'WAITING' && !trimmedReason) {
+      alert('Vui lòng nhập lý do chờ')
+      return
+    }
+
+    try {
+      setUpdating(true)
+      await taskService.updateTask(task.taskId, {
+        status: newStatus,
+        waitingReason: newStatus === 'WAITING' ? trimmedReason : null
+      })
+      
+      if (onStatusUpdate) {
+        await onStatusUpdate() // Đợi reload xong
+      }
+      
+      // Force re-render để cập nhật thanh tiến độ
+      setRefreshKey(prev => prev + 1)
+      
+      setShowReasonModal(false)
+      setSelectedStatus(null)
+      setWaitingReason('')
+    } catch (err) {
+      alert(err.response?.data?.message || 'Lỗi khi cập nhật trạng thái')
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Thanh tiến độ chính */}
+      <div className="relative pb-24">
+        {/* Background thanh tiến độ */}
+        <div className="relative h-12 bg-gradient-to-r from-gray-100 via-gray-50 to-gray-100 rounded-xl overflow-visible shadow-inner border border-gray-200">
+          {/* Thanh tiến độ đã hoàn thành với gradient */}
+          <div
+            className="absolute top-0 bottom-0 bg-gradient-to-r from-blue-500 via-blue-600 to-green-500 transition-all duration-500 ease-out shadow-lg rounded-xl"
+            style={{ width: `${currentPosition}%` }}
+          />
+          
+          {/* Các điểm đánh dấu trạng thái */}
+          {statusOrder.map((status, index) => {
+            const position = (index / (statusOrder.length - 1)) * 100
+            const isActive = statusOrder.indexOf(displayStatus) >= index
+            
+            return (
+              <div
+                key={status}
+                className="absolute top-0 bottom-0 flex flex-col items-center justify-center"
+                style={{ left: `${position}%`, transform: 'translateX(-50%)', zIndex: 20 }}
+              >
+                {/* Điểm đánh dấu */}
+                <div
+                  className={`w-6 h-6 rounded-full border-2 shadow-lg transition-all duration-300 ${
+                    isActive
+                      ? `${statusColors[status]} border-white scale-110`
+                      : 'bg-white border-gray-400 scale-100'
+                  }`}
+                />
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Khu vực hiển thị trạng thái hiện tại */}
+        <div className="relative mt-4">
+          {statusOrder.map((status, index) => {
+            const position = (index / (statusOrder.length - 1)) * 100
+            
+            if (status !== displayStatus) return null
+            
+            return (
+              <div
+                key={status}
+                className="absolute flex flex-col items-center"
+                style={{ 
+                  left: `${position}%`, 
+                  transform: 'translateX(-50%)',
+                  width: '140px',
+                  top: 0
+                }}
+              >
+                <div className="flex flex-col items-center space-y-1.5 w-full">
+                  <div
+                    className={`relative w-full px-2.5 py-1.5 rounded-lg text-xs font-medium shadow-sm transition-all duration-200 ${
+                      isHovered 
+                        ? 'scale-105 z-30 shadow-lg' 
+                        : 'scale-100'
+                    } ${statusBgColors[status]} ${canUpdate ? 'cursor-pointer hover:bg-opacity-80' : 'cursor-not-allowed opacity-60'}`}
+                    onMouseEnter={() => setIsHovered(true)}
+                    onMouseLeave={() => setIsHovered(false)}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (process.env.NODE_ENV === 'development') {
+                        console.log('Status badge clicked, canUpdate:', canUpdate, 'displayStatus:', displayStatus)
+                      }
+                      if (canUpdate) {
+                        handleStatusClick()
+                      } else {
+                        alert('Bạn không có quyền thay đổi trạng thái công việc này')
+                      }
+                    }}
+                    title={canUpdate ? 'Nhấn để thay đổi trạng thái' : 'Bạn không có quyền thay đổi trạng thái'}
+                  >
+                    <div className="flex items-center justify-center space-x-1.5">
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColors[status]}`} />
+                      <span className="text-gray-800 font-semibold text-center truncate">
+                        {statusLabels[displayStatus]}
+                      </span>
+                    </div>
+                    {isHovered && task?.waitingReason && task?.status === 'WAITING' && (
+                      <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 px-2 py-1 bg-yellow-100 border border-yellow-300 rounded text-xs text-yellow-800 whitespace-nowrap z-40 shadow-lg">
+                        Lý do: {task.waitingReason}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Nhãn trạng thái phía dưới */}
+        <div className="relative mt-20">
+          {statusOrder.map((status, index) => {
+            const position = (index / (statusOrder.length - 1)) * 100
+            const isActive = statusOrder.indexOf(displayStatus) >= index
+            
+            return (
+              <div
+                key={status}
+                className="absolute text-center"
+                style={{ left: `${position}%`, transform: 'translateX(-50%)', width: '140px' }}
+              >
+                <div className={`text-sm font-semibold transition-colors ${
+                  isActive ? 'text-gray-900' : 'text-gray-500'
+                }`}>
+                  {statusLabels[status]}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Modal chọn trạng thái */}
+      {showReasonModal && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowReasonModal(false)
+              setSelectedStatus(null)
+              setWaitingReason('')
+            }
+          }}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold mb-4">
+              Thay đổi trạng thái - Công việc
+            </h3>
+            
+            <div className="space-y-3 mb-4">
+              {(() => {
+                // Chỉ cho phép chuyển trạng thái tiến lên (không cho quay lại)
+                const getAvailableNextStatuses = () => {
+                  const currentIndex = statusOrder.indexOf(displayStatus)
+                  if (currentIndex === -1) return []
+                  
+                  // Chỉ lấy các trạng thái sau trạng thái hiện tại
+                  return statusOrder.slice(currentIndex + 1)
+                }
+                
+                const availableStatuses = getAvailableNextStatuses()
+                
+                if (availableStatuses.length === 0) {
+                  return (
+                    <div className="text-center py-4 text-gray-500">
+                      Công việc đã ở trạng thái cuối cùng, không thể chuyển trạng thái nữa.
+                    </div>
+                  )
+                }
+                
+                return availableStatuses.map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => {
+                      if (status === 'WAITING') {
+                        setSelectedStatus(status)
+                      } else {
+                        handleStatusChange(status)
+                      }
+                    }}
+                    className={`w-full p-3 rounded-lg border-2 text-left transition-colors ${
+                      selectedStatus === status
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                  >
+                    <div className="font-medium">{statusLabels[status]}</div>
+                  </button>
+                ))
+              })()}
+            </div>
+
+            {selectedStatus === 'WAITING' && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Lý do chờ *
+                </label>
+                <textarea
+                  value={waitingReason}
+                  onChange={(e) => setWaitingReason(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Nhập lý do chờ..."
+                />
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowReasonModal(false)
+                  setSelectedStatus(null)
+                  setWaitingReason('')
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Hủy
+              </button>
+              {selectedStatus && (
+                <button
+                  onClick={() => handleStatusChange(selectedStatus)}
+                  disabled={updating || (selectedStatus === 'WAITING' && !waitingReason.trim())}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {updating ? 'Đang cập nhật...' : 'Xác nhận'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const TaskDetailPage = ({ basePath }) => {
   const { taskId } = useParams()
@@ -24,7 +358,6 @@ const TaskDetailPage = ({ basePath }) => {
   const [error, setError] = useState('')
   const [newComment, setNewComment] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [showEditModal, setShowEditModal] = useState(false)
   const [showEvaluationModal, setShowEvaluationModal] = useState(false)
   const [canUpdateStatus, setCanUpdateStatus] = useState(false)
   const [userDepartments, setUserDepartments] = useState([])
@@ -43,7 +376,7 @@ const TaskDetailPage = ({ basePath }) => {
     if (task) {
       checkUpdatePermission()
     }
-  }, [task, userDepartments])
+  }, [task, userDepartments, userRole])
 
   const loadUserRole = () => {
     try {
@@ -135,38 +468,8 @@ const TaskDetailPage = ({ basePath }) => {
       return
     }
 
-    try {
-      const user = JSON.parse(userStr)
-      const roles = user.roles || []
-      
-      // Director và Super Admin luôn có quyền
-      if (roles.includes('DIRECTOR') || roles.includes('SUPER_ADMIN')) {
-        setCanUpdateStatus(true)
-        return
-      }
-
-      // Manager có quyền nếu là manager của một trong các phòng ban được giao task
-      if (roles.includes('MANAGER') || roles.includes('DEPARTMENT_MANAGER')) {
-        const userDeptIds = userDepartments.map(dept => dept.departmentId)
-        const taskDeptIds = task.departmentIds || []
-        
-        // Kiểm tra xem có phòng ban nào của user nằm trong danh sách phòng ban được giao task không
-        const hasMatchingDept = taskDeptIds.some(taskDeptId => 
-          userDeptIds.includes(taskDeptId)
-        )
-        
-        if (hasMatchingDept) {
-          setCanUpdateStatus(true)
-          return
-        }
-      }
-
-      // Tất cả user đều có thể thay đổi trạng thái (bỏ kiểm tra)
-      setCanUpdateStatus(true)
-    } catch (err) {
-      console.error('Error checking update permission:', err)
-      setCanUpdateStatus(false)
-    }
+    // Cho phép tất cả các role đều có quyền thay đổi trạng thái
+    setCanUpdateStatus(true)
   }
 
   const handleSubmitComment = async (e) => {
@@ -188,15 +491,6 @@ const TaskDetailPage = ({ basePath }) => {
     }
   }
 
-  const handleUpdateTask = async (data) => {
-    try {
-      await taskService.updateTask(taskId, data)
-      loadTaskDetail()
-    } catch (err) {
-      setError(err.response?.data?.message || 'Lỗi khi cập nhật task')
-      throw err
-    }
-  }
 
   const handleEvaluate = async (data) => {
     try {
@@ -258,20 +552,6 @@ const TaskDetailPage = ({ basePath }) => {
                   {TASK_STATUS_LABELS[task.status] || task.status}
                 </span>
               </div>
-              <div className="flex space-x-2">
-                {/* Chỉ Director và Manager mới được chỉnh sửa task */}
-                {(userRole === 'DIRECTOR' || userRole === 'SUPER_ADMIN' || userRole === 'MANAGER' || userRole === 'DEPARTMENT_MANAGER') && (
-                    <button
-                    onClick={() => setShowEditModal(true)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                    <span>Chỉnh sửa task</span>
-                    </button>
-                )}
-              </div>
             </div>
 
             {task.description && (
@@ -286,6 +566,19 @@ const TaskDetailPage = ({ basePath }) => {
               <div key="progress-bar" className="mb-6">
                 <h3 className="font-semibold text-gray-900 mb-4">Tiến trình theo phòng ban</h3>
                 <TaskProgressBar 
+                  task={task} 
+                  onStatusUpdate={loadTaskDetail}
+                  canUpdate={canUpdateStatus}
+                />
+              </div>
+            )}
+
+            {/* Thay đổi trạng thái cho task giao trực tiếp (không qua phòng ban) */}
+            {(!task.departmentIds || task.departmentIds.length === 0) && (
+              <div key="direct-status-update" className="mb-6">
+                <h3 className="font-semibold text-gray-900 mb-4">Tiến trình công việc</h3>
+                <DirectTaskStatusUpdate 
+                  key={`direct-status-${task.taskId}-${task.status}`}
                   task={task} 
                   onStatusUpdate={loadTaskDetail}
                   canUpdate={canUpdateStatus}
@@ -645,12 +938,6 @@ const TaskDetailPage = ({ basePath }) => {
         </div>
       </div>
 
-      <EditTaskModal
-        isOpen={showEditModal}
-        onClose={() => setShowEditModal(false)}
-        task={task}
-        onUpdate={handleUpdateTask}
-      />
 
       <EvaluationModal
         isOpen={showEvaluationModal}

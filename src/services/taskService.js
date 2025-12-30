@@ -80,6 +80,21 @@ export const taskService = {
   // Lấy lịch sử thay đổi của task
   getTaskHistory: (taskId) => {
     return api.get(`/tasks/${taskId}/history`)
+  },
+
+  // Lấy danh sách recurring tasks theo director ID
+  getRecurringTasksByDirectorId: (directorId) => {
+    return api.get(`/recurring-tasks/director/${directorId}`)
+  },
+
+  // Dừng recurring task
+  deactivateRecurringTask: (recurringTaskId) => {
+    return api.put(`/recurring-tasks/${recurringTaskId}/deactivate`)
+  },
+
+  // Kích hoạt lại recurring task
+  activateRecurringTask: (recurringTaskId) => {
+    return api.put(`/recurring-tasks/${recurringTaskId}/activate`)
   }
 }
 

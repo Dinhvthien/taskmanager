@@ -1,16 +1,21 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { taskService } from '../../services/taskService'
 import { directorService } from '../../services/directorService'
 import { departmentService } from '../../services/departmentService'
+import { userService } from '../../services/userService'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import Modal from '../../components/Modal'
 import EditTaskModal from '../../components/EditTaskModal'
 import Pagination from '../../components/Pagination'
+import RecurringTaskGroup from '../../components/RecurringTaskGroup'
 import { TASK_STATUS_LABELS, TASK_STATUS_COLORS } from '../../utils/constants'
 
 const CompanyTasksPage = () => {
   const [tasks, setTasks] = useState([])
+  const [recurringTasks, setRecurringTasks] = useState([])
+  const [taskGroups, setTaskGroups] = useState([]) // Nhóm task theo recurring task
+  const [regularTasks, setRegularTasks] = useState([]) // Task không thuộc recurring
   const [director, setDirector] = useState(null)
   const [departments, setDepartments] = useState([])
   const [loading, setLoading] = useState(true)
@@ -23,14 +28,44 @@ const CompanyTasksPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [validationErrors, setValidationErrors] = useState({})
   const [departmentsLoaded, setDepartmentsLoaded] = useState(false)
+  const [activeTab, setActiveTab] = useState('recurring') // 'recurring', 'regular'
   const navigate = useNavigate()
+  const location = useLocation()
+  
+  // Map từ URL path sang status filter
+  const statusFilterMap = {
+    'danglam': 'IN_PROGRESS',
+    'hoanthanh': 'COMPLETED',
+    'choduyet': 'PENDING'
+  }
+  
+  // Xác định status filter từ URL
+  const getStatusFilterFromPath = () => {
+    const path = location.pathname
+    if (path.includes('/tasks/danglam')) return 'IN_PROGRESS'
+    if (path.includes('/tasks/hoanthanh')) return 'COMPLETED'
+    if (path.includes('/tasks/choduyet')) return 'PENDING'
+    return null
+  }
+  
+  const statusFilter = getStatusFilterFromPath()
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     startDate: '',
     endDate: '',
-    departmentIds: []
+    departmentIds: [],
+    userIds: [], // Danh sách nhân viên được chọn
+    // Recurring settings
+    recurrenceEnabled: false,
+    recurrenceType: 'DAILY',
+    recurrenceInterval: 1,
   })
+  const [departmentUsers, setDepartmentUsers] = useState({}) // Map departmentId -> users
+  const [loadingUsers, setLoadingUsers] = useState({}) // Map departmentId -> loading state
+  const [assignmentMode, setAssignmentMode] = useState('department') // 'department' hoặc 'direct'
+  const [allUsers, setAllUsers] = useState([]) // Tất cả users của director
+  const [loadingAllUsers, setLoadingAllUsers] = useState(false)
 
   useEffect(() => {
     loadDirector()
@@ -42,11 +77,26 @@ const CompanyTasksPage = () => {
     }
   }, [director])
 
+  // Tự động chuyển sang tab "regular" khi có status filter
+  useEffect(() => {
+    if (statusFilter && activeTab === 'recurring') {
+      setActiveTab('regular')
+      setCurrentPage(0)
+    }
+  }, [statusFilter])
+
   useEffect(() => {
     if (director && departmentsLoaded) {
-      loadTasks()
+      if (activeTab === 'recurring') {
+        // Tab "Lặp lại": Load tất cả tasks (không phân trang) để nhóm đúng
+        loadAllTasks()
+      } else {
+        // Tab "Thường": Load tasks với pagination
+        loadTasks()
+      }
+      loadRecurringTasks()
     }
-  }, [director, currentPage, departmentsLoaded])
+  }, [director, currentPage, departmentsLoaded, activeTab])
 
   const loadDepartments = async () => {
     if (!director) return
@@ -59,6 +109,22 @@ const CompanyTasksPage = () => {
       setDepartments([])
     } finally {
       setDepartmentsLoaded(true)
+    }
+  }
+
+  const loadUsersForDepartment = async (departmentId) => {
+    if (!departmentId || departmentUsers[departmentId]) return // Đã load rồi thì không load lại
+    
+    try {
+      setLoadingUsers(prev => ({ ...prev, [departmentId]: true }))
+      const response = await departmentService.getUsersWithDetailsByDepartmentId(departmentId)
+      const users = response.data?.result || []
+      setDepartmentUsers(prev => ({ ...prev, [departmentId]: users }))
+    } catch (err) {
+      console.error(`Error loading users for department ${departmentId}:`, err)
+      setDepartmentUsers(prev => ({ ...prev, [departmentId]: [] }))
+    } finally {
+      setLoadingUsers(prev => ({ ...prev, [departmentId]: false }))
     }
   }
 
@@ -110,6 +176,114 @@ const CompanyTasksPage = () => {
     return [...incompleteTasks, ...completedTasks]
   }
 
+  const loadRecurringTasks = async () => {
+    if (!director) return
+    
+    try {
+      const response = await taskService.getRecurringTasksByDirectorId(director.directorId)
+      setRecurringTasks(response.data.result || [])
+    } catch (err) {
+      console.error('Error loading recurring tasks:', err)
+      setRecurringTasks([])
+    }
+  }
+
+  const groupTasksByRecurring = (tasksList) => {
+    // Filter tasks theo status nếu có
+    let filteredTasks = tasksList
+    if (statusFilter) {
+      filteredTasks = tasksList.filter(task => task.status === statusFilter)
+    }
+    
+    if (!recurringTasks || recurringTasks.length === 0) {
+      setTaskGroups([])
+      setRegularTasks(filteredTasks)
+      return
+    }
+    
+    // Tạo map để nhóm tasks theo recurring task
+    const taskGroupMap = new Map()
+    const regularTasksList = []
+    
+    // Với mỗi recurring task, tìm các task có cùng title và description
+    recurringTasks.forEach(recurring => {
+      const matchingTasks = filteredTasks.filter(task => 
+        task.title === recurring.title && 
+        (task.description || '') === (recurring.description || '') &&
+        task.directorId === recurring.directorId
+      )
+      
+      if (matchingTasks.length > 0) {
+        taskGroupMap.set(recurring.recurringTaskId, {
+          recurringTask: recurring,
+          tasks: matchingTasks
+        })
+      }
+    })
+    
+    // Tìm các task không thuộc recurring task nào
+    const groupedTaskIds = new Set()
+    taskGroupMap.forEach(group => {
+      group.tasks.forEach(task => groupedTaskIds.add(task.taskId))
+    })
+    
+    filteredTasks.forEach(task => {
+      if (!groupedTaskIds.has(task.taskId)) {
+        regularTasksList.push(task)
+      }
+    })
+    
+    setTaskGroups(Array.from(taskGroupMap.values()))
+    setRegularTasks(regularTasksList)
+  }
+
+  const loadAllTasks = async () => {
+    if (!director) return
+    
+    try {
+      setLoading(true)
+      // Load tất cả tasks (size lớn) để nhóm đúng các recurring tasks
+      const response = await taskService.getTasksByDirectorId(director.directorId, 0, 10000)
+      const result = response.data.result
+      const tasksList = result.content || []
+      
+      // Load đầy đủ thông tin cho mỗi task (bao gồm departmentNames)
+      const tasksWithDetails = await Promise.all(
+        tasksList.map(async (task) => {
+          try {
+            const detailResponse = await taskService.getTaskById(task.taskId)
+            return detailResponse.data.result || task
+          } catch (err) {
+            console.error(`Error loading task detail ${task.taskId}:`, err)
+            // Fallback: map từ departmentIds nếu có
+            if (task.departmentIds && task.departmentIds.length > 0 && departments.length > 0) {
+              const deptNames = task.departmentIds
+                .map(deptId => {
+                  const dept = departments.find(d => d.departmentId === deptId)
+                  return dept ? dept.departmentName : null
+                })
+                .filter(name => name !== null)
+              return {
+                ...task,
+                departmentNames: deptNames
+              }
+            }
+            return task
+          }
+        })
+      )
+      
+      // Sắp xếp tasks theo yêu cầu
+      const sortedTasks = sortTasks(tasksWithDetails)
+      setTasks(sortedTasks)
+      setTotalPages(1) // Không phân trang cho tab "Lặp lại"
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi tải danh sách tasks')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const loadTasks = async () => {
     if (!director) return
     
@@ -156,6 +330,76 @@ const CompanyTasksPage = () => {
     }
   }
 
+  const handleDeactivateRecurring = async (recurringTaskId) => {
+    if (!window.confirm('Bạn có chắc chắn muốn dừng lặp lại công việc này?')) {
+      return
+    }
+    
+    try {
+      await taskService.deactivateRecurringTask(recurringTaskId)
+      await loadRecurringTasks()
+      // Reload tasks dựa trên activeTab
+      if (activeTab === 'recurring') {
+        await loadAllTasks()
+      } else {
+        await loadTasks()
+      }
+      setError('')
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi dừng lặp lại công việc')
+    }
+  }
+
+  const handleActivateRecurring = async (recurringTaskId) => {
+    if (!window.confirm('Bạn có chắc chắn muốn kích hoạt lại công việc lặp lại này?')) {
+      return
+    }
+    
+    try {
+      await taskService.activateRecurringTask(recurringTaskId)
+      await loadRecurringTasks()
+      // Reload tasks dựa trên activeTab
+      if (activeTab === 'recurring') {
+        await loadAllTasks()
+      } else {
+        await loadTasks()
+      }
+      setError('')
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi kích hoạt lại công việc')
+    }
+  }
+
+  const handleEditRecurring = (recurringTask) => {
+    // Tìm task gốc để edit
+    const originalTask = tasks.find(t => t.taskId === recurringTask.originalTaskId)
+    if (originalTask) {
+      handleEditClick(originalTask, { stopPropagation: () => {} })
+    } else {
+      setError('Không tìm thấy công việc gốc để chỉnh sửa')
+    }
+  }
+
+  const loadAllUsers = async () => {
+    if (!director) return
+    
+    try {
+      setLoadingAllUsers(true)
+      const response = await userService.getUsersByDirectorId(director.directorId, 0, 1000)
+      const usersList = response.data.result?.content || []
+      // Lọc chỉ USER và MANAGER roles
+      const filteredUsers = usersList.filter(user => 
+        user.roles && (user.roles.includes('USER') || user.roles.includes('MANAGER'))
+      )
+      setAllUsers(filteredUsers)
+    } catch (err) {
+      console.error('Error loading all users:', err)
+      setAllUsers([])
+    } finally {
+      setLoadingAllUsers(false)
+    }
+  }
+
   const validateForm = () => {
     const errors = {}
     
@@ -185,9 +429,15 @@ const CompanyTasksPage = () => {
       }
     }
     
-    // Validate departments
-    if (formData.departmentIds.length === 0) {
-      errors.departmentIds = 'Vui lòng chọn ít nhất một phòng ban'
+    // Validate: Cần chọn phòng ban HOẶC nhân viên
+    if (assignmentMode === 'department') {
+      if (formData.departmentIds.length === 0) {
+        errors.departmentIds = 'Vui lòng chọn ít nhất một phòng ban'
+      }
+    } else {
+      if (formData.userIds.length === 0) {
+        errors.userIds = 'Vui lòng chọn ít nhất một nhân viên'
+      }
     }
     
     setValidationErrors(errors)
@@ -213,19 +463,43 @@ const CompanyTasksPage = () => {
         description: formData.description.trim(),
         startDate: new Date(formData.startDate).toISOString(),
         endDate: new Date(formData.endDate).toISOString(),
-        departmentIds: formData.departmentIds.map(id => parseInt(id))
+        departmentIds: assignmentMode === 'department' ? formData.departmentIds.map(id => parseInt(id)) : [],
+        userIds: formData.userIds.map(id => parseInt(id))
       }
-      await taskService.createTask(data)
+      
+      // Thêm recurring settings nếu có
+      if (formData.recurrenceEnabled && formData.recurrenceType) {
+        data.recurrenceType = formData.recurrenceType
+        data.recurrenceInterval = formData.recurrenceInterval || 1
+      }
+      
+      const createResponse = await taskService.createTask(data)
+      const createdTask = createResponse.data.result
+      
+      // Không cần gán users nữa vì đã gửi trong data.userIds và backend sẽ tự động gán
+      
       setShowCreateModal(false)
       setFormData({
         title: '',
         description: '',
         startDate: '',
         endDate: '',
-        departmentIds: []
+        departmentIds: [],
+        userIds: [],
+        recurrenceEnabled: false,
+        recurrenceType: 'DAILY',
+        recurrenceInterval: 1
       })
+      setDepartmentUsers({})
       setValidationErrors({})
-      loadTasks()
+      setAssignmentMode('department')
+      // Reload tasks dựa trên activeTab
+      if (activeTab === 'recurring') {
+        await loadAllTasks()
+      } else {
+        await loadTasks()
+      }
+      await loadRecurringTasks()
     } catch (err) {
       setError(err.response?.data?.message || 'Lỗi khi tạo task')
     } finally {
@@ -247,12 +521,32 @@ const CompanyTasksPage = () => {
   }
 
   const handleUpdateTask = async () => {
-    await loadTasks() // Reload tasks sau khi cập nhật
+    // Reload tasks sau khi cập nhật, dựa trên activeTab
+    if (activeTab === 'recurring') {
+      await loadAllTasks()
+    } else {
+      await loadTasks()
+    }
+    await loadRecurringTasks()
     setShowEditModal(false)
     setSelectedTaskForEdit(null)
   }
 
+  // Re-group tasks khi recurring tasks, tasks hoặc statusFilter thay đổi
+  useEffect(() => {
+    if (tasks.length > 0) {
+      groupTasksByRecurring(tasks)
+    } else {
+      setRegularTasks([])
+      setTaskGroups([])
+    }
+  }, [recurringTasks, tasks, statusFilter])
+
   if (loading && tasks.length === 0) return <LoadingSpinner />
+
+  // Filter tasks based on active tab
+  const displayTaskGroups = activeTab === 'recurring' ? taskGroups : []
+  const displayRegularTasks = activeTab === 'regular' ? regularTasks : []
 
   return (
     <div>
@@ -268,6 +562,38 @@ const CompanyTasksPage = () => {
         </button>
       </div>
 
+      {/* Tabs */}
+      <div className="mb-4 border-b border-gray-200">
+        <nav className="flex space-x-8">
+          <button
+            onClick={() => {
+              setActiveTab('recurring')
+              setCurrentPage(0) // Reset về trang đầu khi chuyển tab
+            }}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'recurring'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Lặp lại ({taskGroups.length})
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('regular')
+              setCurrentPage(0) // Reset về trang đầu khi chuyển tab
+            }}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'regular'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Thường ({regularTasks.length})
+          </button>
+        </nav>
+      </div>
+
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
           {error}
@@ -278,9 +604,26 @@ const CompanyTasksPage = () => {
         <LoadingSpinner />
       ) : (
         <>
-          {/* Mobile Card View */}
+          {/* Recurring Task Groups */}
+          {displayTaskGroups.length > 0 && (
+            <div className="mb-6">
+              {displayTaskGroups.map((group) => (
+                <RecurringTaskGroup
+                  key={group.recurringTask.recurringTaskId}
+                  recurringTask={group.recurringTask}
+                  tasks={group.tasks}
+                  onEdit={handleEditRecurring}
+                  onDeactivate={handleDeactivateRecurring}
+                  onActivate={handleActivateRecurring}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Mobile Card View - Chỉ hiển thị khi tab "Thường" */}
+          {activeTab === 'regular' && (
           <div className="md:hidden space-y-2.5">
-            {tasks.map((task) => {
+            {displayRegularTasks.map((task) => {
               const now = new Date()
               const endDate = task.endDate ? new Date(task.endDate) : null
               const hoursUntilDeadline = endDate ? (endDate - now) / (1000 * 60 * 60) : null
@@ -370,6 +713,32 @@ const CompanyTasksPage = () => {
                     </div>
                   </div>
 
+                  {/* Waiting Reason - Hiển thị khi task có status WAITING */}
+                  {(task.status === 'WAITING' || (task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0)) && (
+                    <div className="mb-2">
+                      {task.waitingReason ? (
+                        <div className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-orange-700'} bg-orange-50 border border-orange-200 rounded-md p-2`}>
+                          <span className="font-semibold">Lý do chờ:</span> <span className="break-words">{task.waitingReason}</span>
+                        </div>
+                      ) : task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0 ? (
+                        <div className="space-y-1">
+                          {Object.entries(task.departmentWaitingReasons).map(([deptId, reason]) => {
+                            if (!reason || !reason.trim()) return null
+                            const deptIndex = task.departmentIds?.indexOf(parseInt(deptId))
+                            const deptName = deptIndex !== -1 && task.departmentNames?.[deptIndex] 
+                              ? task.departmentNames[deptIndex] 
+                              : `Phòng ban ${deptId}`
+                            return (
+                              <div key={deptId} className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-orange-700'} bg-orange-50 border border-orange-200 rounded-md p-2`}>
+                                <span className="font-semibold">{deptName}:</span> <span className="break-words">{reason}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+
                   {/* Bottom Row: Department and Date */}
                   <div className="flex items-center justify-between">
                     {/* Department */}
@@ -444,8 +813,10 @@ const CompanyTasksPage = () => {
               )
             })}
           </div>
+          )}
 
-          {/* Desktop Table View */}
+          {/* Desktop Table View - Chỉ hiển thị khi tab "Thường" */}
+          {activeTab === 'regular' && (
           <div className="hidden md:block bg-white rounded-lg shadow-md overflow-hidden">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -478,7 +849,7 @@ const CompanyTasksPage = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {tasks.map((task) => {
+                  {displayRegularTasks.map((task) => {
                     const now = new Date()
                     const endDate = task.endDate ? new Date(task.endDate) : null
                     const hoursUntilDeadline = endDate ? (endDate - now) / (1000 * 60 * 60) : null
@@ -540,23 +911,48 @@ const CompanyTasksPage = () => {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {isOverdue ? (
-                            <span className="px-2 py-1 text-xs font-semibold rounded-full bg-black text-white">
-                              {TASK_STATUS_LABELS[task.status] || task.status} - Quá hạn
-                            </span>
-                          ) : isNearDeadline ? (
-                            <span className="px-2 py-1 text-xs font-semibold rounded-full bg-red-500 text-white">
-                              {TASK_STATUS_LABELS[task.status] || task.status} - Sắp hết hạn
-                            </span>
-                          ) : task.status === 'WAITING' ? (
-                            <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-400 text-yellow-900">
-                              {TASK_STATUS_LABELS[task.status] || task.status}
-                            </span>
-                          ) : (
-                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${TASK_STATUS_COLORS[task.status] || TASK_STATUS_COLORS.PENDING}`}>
-                              {TASK_STATUS_LABELS[task.status] || task.status}
-                            </span>
-                          )}
+                          <div className="space-y-1">
+                            {isOverdue ? (
+                              <span className="px-2 py-1 text-xs font-semibold rounded-full bg-black text-white">
+                                {TASK_STATUS_LABELS[task.status] || task.status} - Quá hạn
+                              </span>
+                            ) : isNearDeadline ? (
+                              <span className="px-2 py-1 text-xs font-semibold rounded-full bg-red-500 text-white">
+                                {TASK_STATUS_LABELS[task.status] || task.status} - Sắp hết hạn
+                              </span>
+                            ) : task.status === 'WAITING' ? (
+                              <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-400 text-yellow-900">
+                                {TASK_STATUS_LABELS[task.status] || task.status}
+                              </span>
+                            ) : (
+                              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${TASK_STATUS_COLORS[task.status] || TASK_STATUS_COLORS.PENDING}`}>
+                                {TASK_STATUS_LABELS[task.status] || task.status}
+                              </span>
+                            )}
+                            {/* Hiển thị lý do chờ */}
+                            {(task.status === 'WAITING' || (task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0)) && (
+                              <div className="mt-2 space-y-1">
+                                {task.waitingReason ? (
+                                  <div className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-orange-700'} bg-orange-50 border border-orange-200 rounded-md p-2 max-w-md`}>
+                                    <span className="font-semibold">Lý do chờ:</span> <span className="break-words">{task.waitingReason}</span>
+                                  </div>
+                                ) : task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0 ? (
+                                  Object.entries(task.departmentWaitingReasons).map(([deptId, reason]) => {
+                                    if (!reason || !reason.trim()) return null
+                                    const deptIndex = task.departmentIds?.indexOf(parseInt(deptId))
+                                    const deptName = deptIndex !== -1 && task.departmentNames?.[deptIndex] 
+                                      ? task.departmentNames[deptIndex] 
+                                      : `Phòng ban ${deptId}`
+                                    return (
+                                      <div key={deptId} className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-orange-700'} bg-orange-50 border border-orange-200 rounded-md p-2 max-w-md`}>
+                                        <span className="font-semibold">{deptName}:</span> <span className="break-words">{reason}</span>
+                                      </div>
+                                    )
+                                  })
+                                ) : null}
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center space-x-2">
@@ -603,14 +999,15 @@ const CompanyTasksPage = () => {
               </table>
             </div>
           </div>
+          )}
 
-          {tasks.length === 0 && (
+          {(displayTaskGroups.length === 0 && displayRegularTasks.length === 0) && (
             <div className="text-center py-12 bg-white rounded-lg shadow">
               <p className="text-gray-500">Chưa có task nào</p>
             </div>
           )}
 
-          {totalPages > 1 && (
+          {activeTab === 'regular' && totalPages > 1 && (
             <div className="mt-6">
             <Pagination
               currentPage={currentPage + 1}
@@ -624,7 +1021,23 @@ const CompanyTasksPage = () => {
 
       <Modal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => {
+          setShowCreateModal(false)
+          setFormData({
+            title: '',
+            description: '',
+            startDate: '',
+            endDate: '',
+            departmentIds: [],
+            userIds: [],
+            recurrenceEnabled: false,
+            recurrenceType: 'DAILY',
+            recurrenceInterval: 1
+          })
+          setDepartmentUsers({})
+          setValidationErrors({})
+          setAssignmentMode('department')
+        }}
         title="Tạo Task mới"
         size="lg"
       >
@@ -717,6 +1130,51 @@ const CompanyTasksPage = () => {
               )}
             </div>
           </div>
+          
+          {/* Chọn mode giao việc */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Cách giao việc *
+            </label>
+            <div className="flex space-x-4 mb-4">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="assignmentMode"
+                  value="department"
+                  checked={assignmentMode === 'department'}
+                  onChange={(e) => {
+                    setAssignmentMode('department')
+                    setFormData({ ...formData, userIds: [] })
+                    setValidationErrors({ ...validationErrors, userIds: '', departmentIds: '' })
+                  }}
+                  className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">Giao qua phòng ban</span>
+              </label>
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="assignmentMode"
+                  value="direct"
+                  checked={assignmentMode === 'direct'}
+                  onChange={async (e) => {
+                    setAssignmentMode('direct')
+                    setFormData({ ...formData, departmentIds: [], userIds: [] })
+                    setValidationErrors({ ...validationErrors, userIds: '', departmentIds: '' })
+                    if (allUsers.length === 0) {
+                      await loadAllUsers()
+                    }
+                  }}
+                  className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">Giao trực tiếp cho nhân viên</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Giao qua phòng ban */}
+          {assignmentMode === 'department' && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-3">
               Phòng ban (có thể chọn nhiều) *
@@ -734,17 +1192,24 @@ const CompanyTasksPage = () => {
                       <input
                         type="checkbox"
                         checked={formData.departmentIds.includes(String(dept.departmentId))}
-              onChange={(e) => {
+                        onChange={async (e) => {
                           const deptId = String(dept.departmentId)
                           if (e.target.checked) {
                             setFormData({
                               ...formData,
                               departmentIds: [...formData.departmentIds, deptId]
                             })
+                            // Load users cho phòng ban này
+                            await loadUsersForDepartment(parseInt(deptId))
                           } else {
                             setFormData({
                               ...formData,
-                              departmentIds: formData.departmentIds.filter(id => id !== deptId)
+                              departmentIds: formData.departmentIds.filter(id => id !== deptId),
+                              // Xóa các nhân viên của phòng ban này khỏi danh sách chọn
+                              userIds: formData.userIds.filter(userId => {
+                                const deptUsers = departmentUsers[parseInt(deptId)] || []
+                                return !deptUsers.some(u => u.userId === userId)
+                              })
                             })
                           }
                           if (validationErrors.departmentIds) {
@@ -761,7 +1226,230 @@ const CompanyTasksPage = () => {
                 <p className="text-sm text-gray-500 text-center py-4">Chưa có phòng ban nào</p>
               )}
             </div>
+            {validationErrors.departmentIds && (
+              <p className="mt-1 text-sm text-red-600">{validationErrors.departmentIds}</p>
+            )}
           </div>
+          )}
+
+          {/* Giao trực tiếp cho nhân viên */}
+          {assignmentMode === 'direct' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Chọn nhân viên (có thể chọn nhiều) *
+            </label>
+            <div className={`border rounded-lg p-4 max-h-60 overflow-y-auto ${
+              validationErrors.userIds ? 'border-red-500' : 'border-gray-300'
+            }`}>
+              {loadingAllUsers ? (
+                <div className="text-sm text-gray-500 text-center py-4">Đang tải danh sách nhân viên...</div>
+              ) : allUsers.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4">Chưa có nhân viên nào</p>
+              ) : (
+                <div className="space-y-2">
+                  {allUsers.map((user) => {
+                    const isManager = user.roles && user.roles.includes('MANAGER')
+                    const isSelected = formData.userIds.includes(user.userId)
+                    
+                    return (
+                      <label
+                        key={user.userId}
+                        className={`flex items-center space-x-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors ${
+                          isSelected ? 'bg-blue-50' : ''
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFormData({
+                                ...formData,
+                                userIds: [...formData.userIds, user.userId]
+                              })
+                            } else {
+                              setFormData({
+                                ...formData,
+                                userIds: formData.userIds.filter(id => id !== user.userId)
+                              })
+                            }
+                            if (validationErrors.userIds) {
+                              setValidationErrors({ ...validationErrors, userIds: '' })
+                            }
+                          }}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-medium text-gray-900">
+                              {user.fullName}
+                            </span>
+                            {isManager && (
+                              <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                                Trưởng phòng
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs text-gray-500">@{user.userName}</span>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+            {validationErrors.userIds && (
+              <p className="mt-1 text-sm text-red-600">{validationErrors.userIds}</p>
+            )}
+          </div>
+          )}
+
+          {/* Hiển thị danh sách nhân viên từ các phòng ban đã chọn (chỉ khi mode = department) */}
+          {assignmentMode === 'department' && formData.departmentIds.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Chọn nhân viên (tùy chọn)
+              </label>
+              <div className="border border-gray-300 rounded-lg p-4 max-h-60 overflow-y-auto">
+                {formData.departmentIds.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-4">
+                    Vui lòng chọn phòng ban trước
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {formData.departmentIds.map((deptIdStr) => {
+                      const deptId = parseInt(deptIdStr)
+                      const dept = departments.find(d => d.departmentId === deptId)
+                      const users = departmentUsers[deptId] || []
+                      const isLoading = loadingUsers[deptId]
+                      
+                      return (
+                        <div key={deptId} className="border-b border-gray-200 pb-3 last:border-b-0 last:pb-0">
+                          <div className="font-medium text-sm text-gray-700 mb-2">
+                            {dept?.departmentName}
+                          </div>
+                          {isLoading ? (
+                            <div className="text-sm text-gray-500 py-2">Đang tải...</div>
+                          ) : users.length === 0 ? (
+                            <div className="text-sm text-gray-500 py-2">Không có nhân viên nào</div>
+                          ) : (
+                            <div className="space-y-2">
+                              {users.map((user) => {
+                                const isManager = user.roles && user.roles.includes('MANAGER')
+                                const isSelected = formData.userIds.includes(user.userId)
+                                
+                                return (
+                                  <label
+                                    key={user.userId}
+                                    className={`flex items-center space-x-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors ${
+                                      isSelected ? 'bg-blue-50' : ''
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setFormData({
+                                            ...formData,
+                                            userIds: [...formData.userIds, user.userId]
+                                          })
+                                        } else {
+                                          setFormData({
+                                            ...formData,
+                                            userIds: formData.userIds.filter(id => id !== user.userId)
+                                          })
+                                        }
+                                      }}
+                                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                                    />
+                                    <div className="flex-1">
+                                      <div className="flex items-center space-x-2">
+                                        <span className="text-sm font-medium text-gray-900">
+                                          {user.fullName}
+                                        </span>
+                                        {isManager && (
+                                          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                                            Trưởng phòng
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className="text-xs text-gray-500">@{user.userName}</span>
+                                    </div>
+                                  </label>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Recurring Task Settings */}
+          <div className="border-t pt-4 mt-4">
+            <label className="flex items-center space-x-2 mb-3">
+              <input
+                type="checkbox"
+                checked={formData.recurrenceEnabled}
+                onChange={(e) => setFormData({ ...formData, recurrenceEnabled: e.target.checked })}
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <span className="font-medium text-gray-700">Lặp lại công việc</span>
+            </label>
+            
+            {formData.recurrenceEnabled && (
+              <div className="space-y-3 pl-6 border-l-2 border-blue-200">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Lặp lại theo
+                    </label>
+                    <select
+                      value={formData.recurrenceType}
+                      onChange={(e) => setFormData({ ...formData, recurrenceType: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="MINUTELY">Phút</option>
+                      <option value="HOURLY">Giờ</option>
+                      <option value="DAILY">Ngày</option>
+                      <option value="WEEKLY">Tuần</option>
+                      <option value="MONTHLY">Tháng</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Mỗi (số)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={formData.recurrenceInterval}
+                      onChange={(e) => setFormData({ ...formData, recurrenceInterval: parseInt(e.target.value) || 1 })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="1"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Ví dụ: Mỗi 2 ngày, mỗi 3 tuần...
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-sm text-blue-800">
+                    <strong>Lưu ý:</strong> Công việc sẽ tự động được tạo lại với cùng phòng ban, nhân viên và deadline. 
+                    Mỗi công việc được tạo là độc lập và có thể quản lý riêng.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="flex justify-end space-x-3 pt-4">
             <button
               type="button"
@@ -773,8 +1461,15 @@ const CompanyTasksPage = () => {
                     description: '',
                     startDate: '',
                     endDate: '',
-                    departmentIds: []
+                    departmentIds: [],
+                    userIds: [],
+                    recurrenceEnabled: false,
+                    recurrenceType: 'DAILY',
+                    recurrenceInterval: 1
                   })
+                  setDepartmentUsers({})
+                  setValidationErrors({})
+                  setAssignmentMode('department')
                   setError('')
                 }
               }}

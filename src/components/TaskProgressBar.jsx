@@ -14,11 +14,9 @@ const TaskProgressBar = ({ task, onStatusUpdate, canUpdate = false }) => {
     return null
   }
 
-  // Trạng thái theo thứ tự
-  const statusOrder = ['PENDING', 'ACCEPTED', 'IN_PROGRESS', 'WAITING', 'COMPLETED']
+  // Trạng thái theo thứ tự - chỉ hiển thị 3 trạng thái: Đang làm -> Đang chờ -> Hoàn thành
+  const statusOrder = ['IN_PROGRESS', 'WAITING', 'COMPLETED']
   const statusLabels = {
-    PENDING: 'Chờ nhận việc',
-    ACCEPTED: 'Đã nhận',
     IN_PROGRESS: 'Đang làm',
     WAITING: 'Đang chờ',
     COMPLETED: 'Hoàn thành'
@@ -40,19 +38,32 @@ const TaskProgressBar = ({ task, onStatusUpdate, canUpdate = false }) => {
     COMPLETED: 'bg-emerald-50 border-emerald-300'
   }
 
+  // Normalize status: PENDING/ACCEPTED -> IN_PROGRESS cho hiển thị
+  const normalizeStatus = (status) => {
+    if (status === 'PENDING' || status === 'ACCEPTED') {
+      return 'IN_PROGRESS'
+    }
+    return status
+  }
+
   // Tính toán vị trí trên thanh tiến độ
   const getStatusPosition = (status) => {
-    const index = statusOrder.indexOf(status)
+    const normalizedStatus = normalizeStatus(status)
+    const index = statusOrder.indexOf(normalizedStatus)
+    if (index === -1) return 0
     return (index / (statusOrder.length - 1)) * 100
   }
 
   // Tính toán trạng thái chậm nhất
   const getSlowestStatus = () => {
     const statuses = Object.values(task.departmentStatuses || {})
-    if (statuses.length === 0) return 'PENDING'
+    if (statuses.length === 0) return 'IN_PROGRESS'
     
-    const priorities = statuses.map(s => statusOrder.indexOf(s))
-    const minPriority = Math.min(...priorities)
+    // Normalize tất cả statuses trước khi so sánh
+    const normalizedStatuses = statuses.map(s => normalizeStatus(s))
+    const priorities = normalizedStatuses.map(s => statusOrder.indexOf(s))
+    const minPriority = Math.min(...priorities.filter(p => p !== -1))
+    if (minPriority === undefined || minPriority === Infinity) return 'IN_PROGRESS'
     return statusOrder[minPriority]
   }
 
@@ -109,10 +120,11 @@ const TaskProgressBar = ({ task, onStatusUpdate, canUpdate = false }) => {
       : `Phòng ban ${deptId}`
   }
 
-  // Nhóm các phòng ban theo trạng thái
+  // Nhóm các phòng ban theo trạng thái (đã normalize)
   const departmentsByStatus = {}
   task.departmentIds.forEach(deptId => {
-    const status = task.departmentStatuses[deptId] || 'PENDING'
+    const rawStatus = task.departmentStatuses[deptId] || 'PENDING'
+    const status = normalizeStatus(rawStatus)
     if (!departmentsByStatus[status]) {
       departmentsByStatus[status] = []
     }
@@ -243,32 +255,68 @@ const TaskProgressBar = ({ task, onStatusUpdate, canUpdate = false }) => {
 
       {/* Modal chọn trạng thái */}
       {showReasonModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowReasonModal(false)
+              setSelectedDeptId(null)
+              setSelectedStatus(null)
+              setWaitingReason('')
+            }
+          }}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="text-lg font-semibold mb-4">
               Thay đổi trạng thái - {getDepartmentName(selectedDeptId)}
             </h3>
             
             <div className="space-y-3 mb-4">
-              {statusOrder.filter(s => s !== 'PENDING').map((status) => (
-                <button
-                  key={status}
-                  onClick={() => {
-                    if (status === 'WAITING') {
-                      setSelectedStatus(status)
-                    } else {
-                      handleStatusChange(status)
-                    }
-                  }}
-                  className={`w-full p-3 rounded-lg border-2 text-left transition-colors ${
-                    selectedStatus === status
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-300 hover:border-gray-400'
-                  }`}
-                >
-                  <div className="font-medium">{statusLabels[status]}</div>
-                </button>
-              ))}
+              {(() => {
+                // Chỉ cho phép chuyển trạng thái tiến lên (không cho quay lại)
+                const rawDeptStatus = task.departmentStatuses?.[selectedDeptId] || 'PENDING'
+                const currentDeptStatus = normalizeStatus(rawDeptStatus)
+                const getAvailableNextStatuses = () => {
+                  const currentIndex = statusOrder.indexOf(currentDeptStatus)
+                  if (currentIndex === -1) return []
+                  
+                  // Chỉ lấy các trạng thái sau trạng thái hiện tại
+                  return statusOrder.slice(currentIndex + 1)
+                }
+                
+                const availableStatuses = getAvailableNextStatuses()
+                
+                if (availableStatuses.length === 0) {
+                  return (
+                    <div className="text-center py-4 text-gray-500">
+                      Phòng ban này đã ở trạng thái cuối cùng, không thể chuyển trạng thái nữa.
+                    </div>
+                  )
+                }
+                
+                return availableStatuses.map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => {
+                      if (status === 'WAITING') {
+                        setSelectedStatus(status)
+                      } else {
+                        handleStatusChange(status)
+                      }
+                    }}
+                    className={`w-full p-3 rounded-lg border-2 text-left transition-colors ${
+                      selectedStatus === status
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                  >
+                    <div className="font-medium">{statusLabels[status]}</div>
+                  </button>
+                ))
+              })()}
             </div>
 
             {selectedStatus === 'WAITING' && (

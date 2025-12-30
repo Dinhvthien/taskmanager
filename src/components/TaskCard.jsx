@@ -4,10 +4,16 @@ import { TASK_STATUS_LABELS, TASK_STATUS_COLORS } from '../utils/constants'
 const TaskCard = ({ task, basePath = '/user' }) => {
   const navigate = useNavigate()
   
+  // Normalize status: PENDING -> IN_PROGRESS cho hiển thị
+  const normalizeStatus = (status) => {
+    return status === 'PENDING' ? 'IN_PROGRESS' : status
+  }
+  
   const getStatusBadge = (status) => {
+    const normalizedStatus = normalizeStatus(status)
     return (
-      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${TASK_STATUS_COLORS[status] || TASK_STATUS_COLORS.PENDING}`}>
-        {TASK_STATUS_LABELS[status] || status}
+      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${TASK_STATUS_COLORS[normalizedStatus] || TASK_STATUS_COLORS.PENDING}`}>
+        {TASK_STATUS_LABELS[normalizedStatus] || normalizedStatus}
       </span>
     )
   }

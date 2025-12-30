@@ -122,10 +122,21 @@ const MyTasksPage = ({ basePath }) => {
   }, [])
 
   useEffect(() => {
+    // Normalize status: PENDING/ACCEPTED -> IN_PROGRESS cho hiển thị
+    const normalizeStatus = (status) => {
+      if (status === 'PENDING' || status === 'ACCEPTED') {
+        return 'IN_PROGRESS'
+      }
+      return status
+    }
+    
     // Filter tasks theo status
     let filtered = tasks
     if (statusFilter !== 'all') {
-      filtered = tasks.filter(task => task.status === statusFilter)
+      filtered = tasks.filter(task => {
+        const normalizedTaskStatus = normalizeStatus(task.status)
+        return normalizedTaskStatus === statusFilter
+      })
     }
     
     // Filter theo phòng ban nếu có chọn
@@ -268,16 +279,6 @@ const MyTasksPage = ({ basePath }) => {
             Tất cả
           </button>
           <button
-            onClick={() => setStatusFilter(TASK_STATUS.PENDING)}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              statusFilter === TASK_STATUS.PENDING
-                ? 'bg-purple-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Chưa bắt đầu
-          </button>
-          <button
             onClick={() => setStatusFilter(TASK_STATUS.IN_PROGRESS)}
             className={`px-4 py-2 rounded-lg transition-colors ${
               statusFilter === TASK_STATUS.IN_PROGRESS
@@ -286,6 +287,16 @@ const MyTasksPage = ({ basePath }) => {
             }`}
           >
             Đang làm
+          </button>
+          <button
+            onClick={() => setStatusFilter(TASK_STATUS.WAITING)}
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              statusFilter === TASK_STATUS.WAITING
+                ? 'bg-purple-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Đang chờ
           </button>
           <button
             onClick={() => setStatusFilter(TASK_STATUS.COMPLETED)}

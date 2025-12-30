@@ -62,6 +62,9 @@ function App() {
         >
           <Route path="dashboard" element={<DashboardPage role="director" />} />
           <Route path="tasks" element={<CompanyTasksPage />} />
+          <Route path="tasks/danglam" element={<CompanyTasksPage />} />
+          <Route path="tasks/hoanthanh" element={<CompanyTasksPage />} />
+          <Route path="tasks/choduyet" element={<CompanyTasksPage />} />
           <Route path="tasks/:taskId" element={<TaskDetailPage basePath="/director" />} />
           <Route path="department-tasks" element={<DepartmentTasksPage />} />
           <Route path="users" element={<CompanyUsersPage />} />

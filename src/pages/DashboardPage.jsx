@@ -93,14 +93,31 @@ const DashboardPage = ({ role = 'user' }) => {
       setUrgentTasks(urgent.slice(0, 5))
 
       // Get waiting tasks with reasons (từ departmentWaitingReasons)
-      const waiting = tasksList.filter(task => {
+      // Lọc các task có thể đang chờ trước
+      const potentialWaitingTasks = tasksList.filter(task => {
         // Task có status WAITING hoặc có ít nhất một phòng ban đang chờ
         if (task.status === 'WAITING') return true
         if (task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0) {
           return Object.values(task.departmentWaitingReasons).some(reason => reason && reason.trim())
         }
         return false
-      })
+      }).slice(0, 5) // Chỉ load chi tiết 5 task đầu tiên để tối ưu
+
+      // Load chi tiết đầy đủ cho các task đang chờ để có departmentWaitingReasons
+      const waitingTasksWithDetails = await Promise.all(
+        potentialWaitingTasks.map(async (task) => {
+          try {
+            const detailResponse = await taskService.getTaskById(task.taskId)
+            return detailResponse.data.result || task
+          } catch (err) {
+            console.error(`Error loading task detail ${task.taskId}:`, err)
+            return task
+          }
+        })
+      )
+
+      // Xử lý lý do chờ từ dữ liệu đầy đủ
+      const waiting = waitingTasksWithDetails
         .map(task => {
           // Lấy tất cả lý do chờ từ các phòng ban
           const deptReasons = task.departmentWaitingReasons || {}
@@ -111,13 +128,26 @@ const DashboardPage = ({ role = 'user' }) => {
               return { deptId, deptName, reason }
             })
           
+          // Nếu không có lý do từ departmentWaitingReasons, kiểm tra waitingReason của task
+          if (reasonsList.length === 0 && task.waitingReason) {
+            return {
+              ...task,
+              waitingReasons: [{ deptId: null, deptName: 'Task', reason: task.waitingReason }],
+              waitingReason: task.waitingReason
+            }
+          }
+          
           return {
             ...task,
             waitingReasons: reasonsList, // Danh sách lý do chờ theo phòng ban
-            waitingReason: reasonsList.length > 0 ? reasonsList[0].reason : null // Lý do đầu tiên để hiển thị
+            waitingReason: reasonsList.length > 0 ? reasonsList[0].reason : (task.waitingReason || null) // Lý do đầu tiên để hiển thị
           }
         })
-        .slice(0, 5)
+        .filter(task => {
+          // Chỉ giữ lại task thực sự có lý do chờ
+          return task.waitingReasons && task.waitingReasons.length > 0
+        })
+      
       setWaitingTasks(waiting)
     } catch (err) {
       console.error('Error loading tasks:', err)
@@ -185,7 +215,10 @@ const DashboardPage = ({ role = 'user' }) => {
       {role === 'director' && (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 md:gap-6 mb-4 sm:mb-6 md:mb-8">
-            <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 border border-blue-200">
+            <div 
+              onClick={() => navigate('/director/tasks')}
+              className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 border border-blue-200 cursor-pointer hover:shadow-xl hover:scale-105 transition-all duration-200"
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs sm:text-sm font-medium text-blue-700 mb-1">Tổng Tasks</p>
@@ -199,7 +232,10 @@ const DashboardPage = ({ role = 'user' }) => {
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 border border-yellow-200">
+            <div 
+              onClick={() => navigate('/director/tasks/danglam')}
+              className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 border border-yellow-200 cursor-pointer hover:shadow-xl hover:scale-105 transition-all duration-200"
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs sm:text-sm font-medium text-yellow-700 mb-1">Đang làm</p>
@@ -213,7 +249,10 @@ const DashboardPage = ({ role = 'user' }) => {
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 border border-green-200">
+            <div 
+              onClick={() => navigate('/director/tasks/hoanthanh')}
+              className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 border border-green-200 cursor-pointer hover:shadow-xl hover:scale-105 transition-all duration-200"
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs sm:text-sm font-medium text-green-700 mb-1">Hoàn thành</p>
@@ -227,7 +266,10 @@ const DashboardPage = ({ role = 'user' }) => {
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 border border-gray-200">
+            <div 
+              onClick={() => navigate('/director/tasks/choduyet')}
+              className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 border border-gray-200 cursor-pointer hover:shadow-xl hover:scale-105 transition-all duration-200"
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs sm:text-sm font-medium text-gray-700 mb-1">Chờ xác nhận</p>
@@ -241,7 +283,10 @@ const DashboardPage = ({ role = 'user' }) => {
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 border border-purple-200">
+            <div 
+              onClick={() => navigate('/director/users')}
+              className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 border border-purple-200 cursor-pointer hover:shadow-xl hover:scale-105 transition-all duration-200"
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs sm:text-sm font-medium text-purple-700 mb-1">Nhân viên</p>
@@ -255,7 +300,10 @@ const DashboardPage = ({ role = 'user' }) => {
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 border border-indigo-200">
+            <div 
+              onClick={() => navigate('/director/departments')}
+              className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 border border-indigo-200 cursor-pointer hover:shadow-xl hover:scale-105 transition-all duration-200"
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs sm:text-sm font-medium text-indigo-700 mb-1">Phòng ban</p>
