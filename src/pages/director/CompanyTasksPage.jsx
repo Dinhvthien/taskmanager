@@ -24,8 +24,29 @@ const CompanyTasksPage = () => {
   const [totalPages, setTotalPages] = useState(1)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [showEditRecurringModal, setShowEditRecurringModal] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [showDeleteRecurringModal, setShowDeleteRecurringModal] = useState(false)
   const [selectedTaskForEdit, setSelectedTaskForEdit] = useState(null)
+  const [selectedRecurringTaskForEdit, setSelectedRecurringTaskForEdit] = useState(null)
+  const [selectedTaskForDelete, setSelectedTaskForDelete] = useState(null)
+  const [selectedRecurringTaskForDelete, setSelectedRecurringTaskForDelete] = useState(null)
+  const [recurringFormData, setRecurringFormData] = useState({
+    title: '',
+    description: '',
+    startDate: '',
+    endDate: '',
+    departmentIds: [],
+    userIds: [],
+    recurrenceType: 'DAILY',
+    recurrenceInterval: 1,
+    recurrenceEndDate: '',
+    maxOccurrences: null
+  })
+  const [recurringAssignmentMode, setRecurringAssignmentMode] = useState('department') // 'department' hoặc 'direct'
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isDeletingRecurring, setIsDeletingRecurring] = useState(false)
   const [validationErrors, setValidationErrors] = useState({})
   const [departmentsLoaded, setDepartmentsLoaded] = useState(false)
   const [activeTab, setActiveTab] = useState('recurring') // 'recurring', 'regular'
@@ -370,13 +391,117 @@ const CompanyTasksPage = () => {
     }
   }
 
-  const handleEditRecurring = (recurringTask) => {
-    // Tìm task gốc để edit
-    const originalTask = tasks.find(t => t.taskId === recurringTask.originalTaskId)
-    if (originalTask) {
-      handleEditClick(originalTask, { stopPropagation: () => {} })
-    } else {
-      setError('Không tìm thấy công việc gốc để chỉnh sửa')
+  const handleDeleteRecurring = async (recurringTask) => {
+    setSelectedRecurringTaskForDelete(recurringTask)
+    setShowDeleteRecurringModal(true)
+  }
+
+  const handleConfirmDeleteRecurring = async () => {
+    if (!selectedRecurringTaskForDelete) return
+
+    try {
+      setIsDeletingRecurring(true)
+      await taskService.deleteRecurringTask(selectedRecurringTaskForDelete.recurringTaskId)
+      
+      // Reload tasks sau khi xóa
+      if (activeTab === 'recurring') {
+        await loadAllTasks()
+      } else {
+        await loadTasks()
+      }
+      await loadRecurringTasks()
+      
+      setShowDeleteRecurringModal(false)
+      setSelectedRecurringTaskForDelete(null)
+      setError('')
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi xóa recurring task')
+    } finally {
+      setIsDeletingRecurring(false)
+    }
+  }
+
+  const handleEditRecurring = async (recurringTask) => {
+    setSelectedRecurringTaskForEdit(recurringTask)
+    const deptIds = (recurringTask.departmentIds || []).map(id => String(id))
+    const userIds = (recurringTask.assignedUserIds || []).map(id => String(id))
+    
+    // Xác định assignment mode: nếu có departmentIds thì là 'department', nếu chỉ có userIds thì là 'direct'
+    const mode = deptIds.length > 0 ? 'department' : 'direct'
+    setRecurringAssignmentMode(mode)
+    
+    setRecurringFormData({
+      title: recurringTask.title || '',
+      description: recurringTask.description || '',
+      startDate: recurringTask.startDate ? new Date(recurringTask.startDate).toISOString().slice(0, 16) : '',
+      endDate: recurringTask.endDate ? new Date(recurringTask.endDate).toISOString().slice(0, 16) : '',
+      departmentIds: deptIds,
+      userIds: userIds,
+      recurrenceType: recurringTask.recurrenceType || 'DAILY',
+      recurrenceInterval: recurringTask.recurrenceInterval || 1,
+      recurrenceEndDate: '',
+      maxOccurrences: null
+    })
+    
+    // Load users cho các phòng ban đã chọn
+    if (mode === 'department' && deptIds.length > 0) {
+      for (const deptId of deptIds) {
+        await loadUsersForDepartment(parseInt(deptId))
+      }
+    }
+    
+    // Load all users nếu mode là direct
+    if (mode === 'direct' && allUsers.length === 0) {
+      await loadAllUsers()
+    }
+    
+    setShowEditRecurringModal(true)
+    setError('')
+  }
+
+  const handleUpdateRecurring = async () => {
+    if (!selectedRecurringTaskForEdit) return
+
+    try {
+      setIsSubmitting(true)
+      setError('')
+      
+      const updateData = {
+        title: recurringFormData.title,
+        description: recurringFormData.description,
+        startDate: recurringFormData.startDate ? new Date(recurringFormData.startDate).toISOString() : null,
+        endDate: recurringFormData.endDate ? new Date(recurringFormData.endDate).toISOString() : null,
+        departmentIds: recurringFormData.departmentIds.map(id => parseInt(id)),
+        userIds: recurringFormData.userIds.length > 0 ? recurringFormData.userIds.map(id => parseInt(id)) : null,
+        recurrenceType: recurringFormData.recurrenceType,
+        recurrenceInterval: recurringFormData.recurrenceInterval,
+        recurrenceEndDate: null,
+        maxOccurrences: null
+      }
+
+      await taskService.updateRecurringTask(selectedRecurringTaskForEdit.recurringTaskId, updateData)
+      
+      // Lưu lại tab hiện tại trước khi reload
+      const currentTab = activeTab
+      
+      // Reload tasks sau khi cập nhật
+      if (currentTab === 'recurring') {
+        await loadAllTasks()
+      } else {
+        await loadTasks()
+      }
+      await loadRecurringTasks()
+      
+      // Đảm bảo giữ nguyên tab hiện tại
+      setActiveTab(currentTab)
+      
+      setShowEditRecurringModal(false)
+      setSelectedRecurringTaskForEdit(null)
+      setError('')
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi cập nhật recurring task')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -532,6 +657,31 @@ const CompanyTasksPage = () => {
     setSelectedTaskForEdit(null)
   }
 
+  const handleDeleteTask = async () => {
+    if (!selectedTaskForDelete) return
+
+    try {
+      setIsDeleting(true)
+      await taskService.deleteTask(selectedTaskForDelete.taskId)
+      
+      // Reload tasks sau khi xóa
+      if (activeTab === 'recurring') {
+        await loadAllTasks()
+      } else {
+        await loadTasks()
+      }
+      await loadRecurringTasks()
+      
+      setShowDeleteModal(false)
+      setSelectedTaskForDelete(null)
+      setError('')
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi xóa task')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   // Re-group tasks khi recurring tasks, tasks hoặc statusFilter thay đổi
   useEffect(() => {
     if (tasks.length > 0) {
@@ -615,6 +765,7 @@ const CompanyTasksPage = () => {
                   onEdit={handleEditRecurring}
                   onDeactivate={handleDeactivateRecurring}
                   onActivate={handleActivateRecurring}
+                  onDelete={handleDeleteRecurring}
                 />
               ))}
             </div>
@@ -989,6 +1140,16 @@ const CompanyTasksPage = () => {
                               className="text-purple-600 hover:text-purple-900 px-2 py-1 rounded hover:bg-purple-50"
                             >
                               Chi tiết
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedTaskForDelete(task)
+                                setShowDeleteModal(true)
+                              }}
+                              className="text-red-600 hover:text-red-900 px-2 py-1 rounded hover:bg-red-50"
+                            >
+                              Xóa
                             </button>
                           </div>
                         </td>
@@ -1508,6 +1669,469 @@ const CompanyTasksPage = () => {
           onUpdate={handleUpdateTask}
         />
       )}
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false)
+          setSelectedTaskForDelete(null)
+        }}
+        title="Xác nhận xóa task"
+      >
+        <div className="space-y-4">
+          <p className="text-gray-700">
+            Bạn có chắc chắn muốn xóa task <strong>"{selectedTaskForDelete?.title}"</strong> không?
+          </p>
+          <p className="text-sm text-gray-500">
+            Task sẽ được xóa mềm và không hiển thị trong danh sách nữa.
+          </p>
+          <div className="flex justify-end space-x-3">
+            <button
+              onClick={() => {
+                setShowDeleteModal(false)
+                setSelectedTaskForDelete(null)
+              }}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              disabled={isDeleting}
+            >
+              Hủy
+            </button>
+            <button
+              onClick={handleDeleteTask}
+              disabled={isDeleting}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            >
+              {isDeleting && (
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              )}
+              <span>{isDeleting ? 'Đang xóa...' : 'Xóa'}</span>
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Recurring Task Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteRecurringModal}
+        onClose={() => {
+          setShowDeleteRecurringModal(false)
+          setSelectedRecurringTaskForDelete(null)
+        }}
+        title="Xác nhận xóa task lặp lại"
+      >
+        <div className="space-y-4">
+          <p className="text-gray-700">
+            Bạn có chắc chắn muốn xóa task lặp lại <strong>"{selectedRecurringTaskForDelete?.title}"</strong> không?
+          </p>
+          <p className="text-sm text-gray-500">
+            Task lặp lại sẽ được xóa mềm và không hiển thị trong danh sách nữa. Các task đã được tạo từ task lặp lại này vẫn sẽ được giữ lại.
+          </p>
+          <div className="flex justify-end space-x-3">
+            <button
+              onClick={() => {
+                setShowDeleteRecurringModal(false)
+                setSelectedRecurringTaskForDelete(null)
+              }}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              disabled={isDeletingRecurring}
+            >
+              Hủy
+            </button>
+            <button
+              onClick={handleConfirmDeleteRecurring}
+              disabled={isDeletingRecurring}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            >
+              {isDeletingRecurring && (
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              )}
+              <span>{isDeletingRecurring ? 'Đang xóa...' : 'Xóa'}</span>
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Recurring Task Modal */}
+      <Modal
+        isOpen={showEditRecurringModal}
+        onClose={() => {
+          setShowEditRecurringModal(false)
+          setSelectedRecurringTaskForEdit(null)
+          setError('')
+        }}
+        title="Chỉnh sửa Task Lặp lại"
+        size="lg"
+      >
+        <form onSubmit={(e) => { e.preventDefault(); handleUpdateRecurring(); }} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Tiêu đề *
+            </label>
+            <input
+              type="text"
+              required
+              value={recurringFormData.title}
+              onChange={(e) => setRecurringFormData({ ...recurringFormData, title: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              maxLength={200}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Mô tả
+            </label>
+            <textarea
+              value={recurringFormData.description}
+              onChange={(e) => setRecurringFormData({ ...recurringFormData, description: e.target.value })}
+              rows={4}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Ngày bắt đầu *
+              </label>
+              <input
+                type="datetime-local"
+                required
+                value={recurringFormData.startDate}
+                onChange={(e) => setRecurringFormData({ ...recurringFormData, startDate: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Ngày kết thúc *
+              </label>
+              <input
+                type="datetime-local"
+                required
+                value={recurringFormData.endDate}
+                onChange={(e) => setRecurringFormData({ ...recurringFormData, endDate: e.target.value })}
+                min={recurringFormData.startDate || ''}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          {/* Chọn mode giao việc */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Cách giao việc *
+            </label>
+            <div className="flex space-x-4 mb-4">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="recurringAssignmentMode"
+                  value="department"
+                  checked={recurringAssignmentMode === 'department'}
+                  onChange={async (e) => {
+                    setRecurringAssignmentMode('department')
+                    setRecurringFormData({ ...recurringFormData, userIds: [] })
+                    // Load users cho các phòng ban đã chọn
+                    for (const deptId of recurringFormData.departmentIds) {
+                      await loadUsersForDepartment(parseInt(deptId))
+                    }
+                  }}
+                  className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">Giao qua phòng ban</span>
+              </label>
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="recurringAssignmentMode"
+                  value="direct"
+                  checked={recurringAssignmentMode === 'direct'}
+                  onChange={async (e) => {
+                    setRecurringAssignmentMode('direct')
+                    setRecurringFormData({ ...recurringFormData, departmentIds: [], userIds: [] })
+                    if (allUsers.length === 0) {
+                      await loadAllUsers()
+                    }
+                  }}
+                  className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">Giao trực tiếp cho nhân viên</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Giao qua phòng ban */}
+          {recurringAssignmentMode === 'department' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Phòng ban (có thể chọn nhiều) *
+            </label>
+            <div className="border border-gray-300 rounded-lg p-4 max-h-60 overflow-y-auto">
+              {departments.length > 0 ? (
+                <div className="space-y-2">
+                  {departments.map((dept) => (
+                    <label
+                      key={dept.departmentId}
+                      className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={recurringFormData.departmentIds.includes(String(dept.departmentId))}
+                        onChange={async (e) => {
+                          const deptId = String(dept.departmentId)
+                          if (e.target.checked) {
+                            setRecurringFormData({
+                              ...recurringFormData,
+                              departmentIds: [...recurringFormData.departmentIds, deptId]
+                            })
+                            await loadUsersForDepartment(parseInt(deptId))
+                          } else {
+                            setRecurringFormData({
+                              ...recurringFormData,
+                              departmentIds: recurringFormData.departmentIds.filter(id => id !== deptId),
+                              // Xóa các nhân viên của phòng ban này khỏi danh sách chọn
+                              userIds: recurringFormData.userIds.filter(userId => {
+                                const deptUsers = departmentUsers[parseInt(deptId)] || []
+                                return !deptUsers.some(u => String(u.userId) === userId)
+                              })
+                            })
+                          }
+                        }}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-gray-700">{dept.departmentName}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 text-center py-4">Chưa có phòng ban nào</p>
+              )}
+            </div>
+          </div>
+          )}
+
+          {/* Giao trực tiếp cho nhân viên */}
+          {recurringAssignmentMode === 'direct' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Nhân viên (có thể chọn nhiều) *
+            </label>
+            <div className="border border-gray-300 rounded-lg p-4 max-h-60 overflow-y-auto">
+              {loadingAllUsers ? (
+                <div className="text-sm text-gray-500 text-center py-4">Đang tải...</div>
+              ) : allUsers.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4">Chưa có nhân viên nào</p>
+              ) : (
+                <div className="space-y-2">
+                  {allUsers.map((user) => {
+                    const isManager = user.roles && user.roles.includes('MANAGER')
+                    const isSelected = recurringFormData.userIds.includes(String(user.userId))
+                    
+                    return (
+                      <label
+                        key={user.userId}
+                        className={`flex items-center space-x-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors ${
+                          isSelected ? 'bg-blue-50' : ''
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setRecurringFormData({
+                                ...recurringFormData,
+                                userIds: [...recurringFormData.userIds, String(user.userId)]
+                              })
+                            } else {
+                              setRecurringFormData({
+                                ...recurringFormData,
+                                userIds: recurringFormData.userIds.filter(id => id !== String(user.userId))
+                              })
+                            }
+                          }}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-medium text-gray-900">
+                              {user.fullName}
+                            </span>
+                            {isManager && (
+                              <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                                Trưởng phòng
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs text-gray-500">@{user.userName}</span>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+          )}
+
+          {/* Hiển thị danh sách nhân viên từ các phòng ban đã chọn (chỉ khi mode = department) */}
+          {recurringAssignmentMode === 'department' && recurringFormData.departmentIds.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Chọn nhân viên (tùy chọn)
+              </label>
+              <div className="border border-gray-300 rounded-lg p-4 max-h-60 overflow-y-auto">
+                <div className="space-y-4">
+                  {recurringFormData.departmentIds.map((deptIdStr) => {
+                    const deptId = parseInt(deptIdStr)
+                    const dept = departments.find(d => d.departmentId === deptId)
+                    const users = departmentUsers[deptId] || []
+                    const isLoading = loadingUsers[deptId]
+                    
+                    return (
+                      <div key={deptId} className="border-b border-gray-200 pb-3 last:border-b-0 last:pb-0">
+                        <div className="font-medium text-sm text-gray-700 mb-2">
+                          {dept?.departmentName}
+                        </div>
+                        {isLoading ? (
+                          <div className="text-sm text-gray-500 py-2">Đang tải...</div>
+                        ) : users.length === 0 ? (
+                          <div className="text-sm text-gray-500 py-2">Không có nhân viên nào</div>
+                        ) : (
+                          <div className="space-y-2">
+                            {users.map((user) => {
+                              const isManager = user.roles && user.roles.includes('MANAGER')
+                              const isSelected = recurringFormData.userIds.includes(String(user.userId))
+                              
+                              return (
+                                <label
+                                  key={user.userId}
+                                  className={`flex items-center space-x-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors ${
+                                    isSelected ? 'bg-blue-50' : ''
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setRecurringFormData({
+                                          ...recurringFormData,
+                                          userIds: [...recurringFormData.userIds, String(user.userId)]
+                                        })
+                                      } else {
+                                        setRecurringFormData({
+                                          ...recurringFormData,
+                                          userIds: recurringFormData.userIds.filter(id => id !== String(user.userId))
+                                        })
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                                  />
+                                  <div className="flex-1">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="text-sm font-medium text-gray-900">
+                                        {user.fullName}
+                                      </span>
+                                      {isManager && (
+                                        <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                                          Trưởng phòng
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-xs text-gray-500">@{user.userName}</span>
+                                  </div>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Recurring Settings */}
+          <div className="border-t pt-4 mt-4">
+            <h3 className="font-medium text-gray-700 mb-3">Cài đặt lặp lại</h3>
+            <div className="space-y-3 pl-6 border-l-2 border-blue-200">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Lặp lại theo
+                  </label>
+                  <select
+                    value={recurringFormData.recurrenceType}
+                    onChange={(e) => setRecurringFormData({ ...recurringFormData, recurrenceType: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="MINUTELY">Phút</option>
+                    <option value="HOURLY">Giờ</option>
+                    <option value="DAILY">Ngày</option>
+                    <option value="WEEKLY">Tuần</option>
+                    <option value="MONTHLY">Tháng</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Mỗi (số)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={recurringFormData.recurrenceInterval}
+                    onChange={(e) => setRecurringFormData({ ...recurringFormData, recurrenceInterval: parseInt(e.target.value) || 1 })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-3 pt-4 border-t">
+            <button
+              type="button"
+              onClick={() => {
+                setShowEditRecurringModal(false)
+                setSelectedRecurringTaskForEdit(null)
+                setError('')
+              }}
+              disabled={isSubmitting}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            >
+              {isSubmitting && (
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              )}
+              <span>{isSubmitting ? 'Đang cập nhật...' : 'Cập nhật'}</span>
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

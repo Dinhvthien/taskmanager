@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TASK_STATUS_LABELS, TASK_STATUS_COLORS } from '../utils/constants'
 
-const RecurringTaskGroup = ({ recurringTask, tasks, onEdit, onDeactivate, onActivate }) => {
+const RecurringTaskGroup = ({ recurringTask, tasks, onEdit, onDeactivate, onActivate, onDelete }) => {
   const [isExpanded, setIsExpanded] = useState(false)
   const navigate = useNavigate()
   
@@ -166,6 +166,17 @@ const RecurringTaskGroup = ({ recurringTask, tasks, onEdit, onDeactivate, onActi
                 className="px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
               >
                 Kích hoạt lại
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onDelete(recurringTask)
+                }}
+                className="px-3 py-1.5 text-sm font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+              >
+                Xóa
               </button>
             )}
           </div>

@@ -95,6 +95,21 @@ export const taskService = {
   // Kích hoạt lại recurring task
   activateRecurringTask: (recurringTaskId) => {
     return api.put(`/recurring-tasks/${recurringTaskId}/activate`)
+  },
+
+  // Xóa task (soft delete)
+  deleteTask: (taskId) => {
+    return api.delete(`/tasks/${taskId}`)
+  },
+
+  // Xóa recurring task (soft delete)
+  deleteRecurringTask: (recurringTaskId) => {
+    return api.delete(`/recurring-tasks/${recurringTaskId}`)
+  },
+
+  // Cập nhật recurring task
+  updateRecurringTask: (recurringTaskId, data) => {
+    return api.put(`/recurring-tasks/${recurringTaskId}`, data)
   }
 }
 
