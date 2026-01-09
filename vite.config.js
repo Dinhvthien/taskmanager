@@ -18,7 +18,7 @@ export default defineConfig({
   },
   build: {
     // Optimize production build
-    minify: 'terser',
+    minify: 'esbuild', // esbuild is faster and included by default
     sourcemap: false, // Disable source maps in production for security
     rollupOptions: {
       output: {
