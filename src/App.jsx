@@ -13,6 +13,7 @@ import TasksPage from './pages/super-admin/TasksPage'
 import UsersPage from './pages/super-admin/UsersPage'
 import CompanyInfoPage from './pages/director/CompanyInfoPage'
 import CompanyTasksPage from './pages/director/CompanyTasksPage'
+import AdHocTasksPage from './pages/director/AdHocTasksPage'
 import CompanyUsersPage from './pages/director/CompanyUsersPage'
 import CompanyDepartmentsPage from './pages/director/CompanyDepartmentsPage'
 import DepartmentTasksPage from './pages/manager/DepartmentTasksPage'
@@ -20,8 +21,14 @@ import DepartmentUsersPage from './pages/manager/DepartmentUsersPage'
 import DepartmentInfoPage from './pages/manager/DepartmentInfoPage'
 import DepartmentsPage from './pages/super-admin/DepartmentsPage'
 import ReportsPage from './pages/ReportsPage'
+import DailyReportPage from './pages/DailyReportPage'
+import EmployeeReportsPage from './pages/director/EmployeeReportsPage'
+import DepartmentReportsPage from './pages/director/DepartmentReportsPage'
+import OtherReportsPage from './pages/director/OtherReportsPage'
 import MyTasksPage from './pages/user/MyTasksPage'
 import TaskDetailPage from './pages/user/TaskDetailPage'
+import NotificationHistoryPage from './pages/NotificationHistoryPage'
+import ProfilePage from './pages/ProfilePage'
 
 function App() {
   return (
@@ -48,6 +55,7 @@ function App() {
           <Route path="users" element={<UsersPage />} />
           <Route path="departments" element={<DepartmentsPage />} />
           <Route path="reports" element={<ReportsPage role="super-admin" />} />
+          <Route path="notifications" element={<NotificationHistoryPage />} />
           <Route index element={<Navigate to="/super-admin/dashboard" replace />} />
         </Route>
 
@@ -65,12 +73,18 @@ function App() {
           <Route path="tasks/danglam" element={<CompanyTasksPage />} />
           <Route path="tasks/hoanthanh" element={<CompanyTasksPage />} />
           <Route path="tasks/choduyet" element={<CompanyTasksPage />} />
+          <Route path="tasks/ad-hoc" element={<AdHocTasksPage />} />
           <Route path="tasks/:taskId" element={<TaskDetailPage basePath="/director" />} />
           <Route path="department-tasks" element={<DepartmentTasksPage />} />
           <Route path="users" element={<CompanyUsersPage />} />
           <Route path="departments" element={<CompanyDepartmentsPage />} />
           <Route path="company" element={<CompanyInfoPage />} />
-          <Route path="reports" element={<ReportsPage role="director" />} />
+          <Route path="reports/employees" element={<EmployeeReportsPage />} />
+          <Route path="reports/departments" element={<DepartmentReportsPage />} />
+          <Route path="reports/other" element={<OtherReportsPage />} />
+          <Route path="reports" element={<Navigate to="/director/reports/employees" replace />} />
+          <Route path="notifications" element={<NotificationHistoryPage />} />
+          <Route path="profile" element={<ProfilePage />} />
           <Route index element={<Navigate to="/director/dashboard" replace />} />
         </Route>
 
@@ -90,6 +104,9 @@ function App() {
           <Route path="users" element={<DepartmentUsersPage />} />
           <Route path="department" element={<DepartmentInfoPage />} />
           <Route path="reports" element={<ReportsPage role="manager" />} />
+          <Route path="daily-report" element={<DailyReportPage />} />
+          <Route path="notifications" element={<NotificationHistoryPage />} />
+          <Route path="profile" element={<ProfilePage />} />
           <Route index element={<Navigate to="/manager/dashboard" replace />} />
         </Route>
 
@@ -107,7 +124,9 @@ function App() {
           <Route path="tasks/:taskId" element={<TaskDetailPage />} />
           <Route path="tasks/in-progress" element={<MyTasksPage />} />
           <Route path="tasks/completed" element={<MyTasksPage />} />
-          <Route path="profile" element={<div className="p-6"><h1 className="text-2xl font-bold">Thông tin cá nhân</h1></div>} />
+          <Route path="daily-report" element={<DailyReportPage />} />
+          <Route path="notifications" element={<NotificationHistoryPage />} />
+          <Route path="profile" element={<ProfilePage />} />
           <Route index element={<Navigate to="/user/dashboard" replace />} />
         </Route>
 

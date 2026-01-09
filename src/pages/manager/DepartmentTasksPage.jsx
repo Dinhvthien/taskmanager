@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { taskService } from '../../services/taskService'
 import { departmentService } from '../../services/departmentService'
+import { attachmentService } from '../../services/attachmentService'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import Modal from '../../components/Modal'
 import EditTaskModal from '../../components/EditTaskModal'
+import FileUpload from '../../components/FileUpload'
 import { TASK_STATUS_LABELS, TASK_STATUS_COLORS } from '../../utils/constants'
 
 const DepartmentTasksPage = () => {
@@ -31,6 +33,8 @@ const DepartmentTasksPage = () => {
     startDate: '',
     endDate: ''
   })
+  const [taskFiles, setTaskFiles] = useState([]) // Files để đính kèm khi tạo task
+  const [uploadingFiles, setUploadingFiles] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   
@@ -254,6 +258,15 @@ const DepartmentTasksPage = () => {
     return Object.keys(errors).length === 0
   }
 
+  // Handlers cho file upload
+  const handleFileSelect = (file) => {
+    setTaskFiles(prev => [...prev, file])
+  }
+
+  const handleFileRemove = (index) => {
+    setTaskFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
   const handleCreate = async (e) => {
     e.preventDefault()
     if (!selectedDepartment || !departmentInfo || isSubmitting) return
@@ -275,7 +288,29 @@ const DepartmentTasksPage = () => {
         endDate: new Date(formData.endDate).toISOString(),
         departmentIds: [selectedDepartment] // Tự động gán cho phòng ban đã chọn
       }
-      await taskService.createTask(data)
+      const createResponse = await taskService.createTask(data)
+      const createdTask = createResponse.data.result
+      const createdTaskId = createdTask.taskId
+      
+      // Upload files nếu có
+      if (taskFiles.length > 0 && createdTaskId) {
+        setUploadingFiles(true)
+        try {
+          console.log(`📎 Uploading ${taskFiles.length} file(s) to new task ${createdTaskId}`)
+          for (const file of taskFiles) {
+            try {
+              await attachmentService.uploadTaskAttachment(createdTaskId, file)
+              console.log(`✅ File uploaded to task ${createdTaskId}:`, file.name)
+            } catch (fileErr) {
+              console.error('✗ Error uploading file:', fileErr)
+              // Continue với các file khác nếu một file lỗi
+            }
+          }
+        } finally {
+          setUploadingFiles(false)
+        }
+      }
+      
       setShowCreateModal(false)
       setFormData({
         title: '',
@@ -283,6 +318,7 @@ const DepartmentTasksPage = () => {
         startDate: '',
         endDate: ''
       })
+      setTaskFiles([]) // Clear files
       setValidationErrors({})
       loadTasks()
     } catch (err) {
@@ -341,147 +377,177 @@ const DepartmentTasksPage = () => {
       ) : (
         <>
           {tasks.length === 0 ? (
-            <div className="text-center py-12">
+            <div className="text-center py-12 bg-white rounded-lg shadow border border-gray-200">
               <p className="text-gray-500">Chưa có task nào trong phòng ban này</p>
             </div>
           ) : (
-            <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                        Tiêu đề
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                        Mô tả
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                        Trạng thái
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                        Tiến độ
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                        Bắt đầu
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                        Kết thúc
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">
-                        Thao tác
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {tasks.map((task) => {
-                      const now = new Date()
-                      const endDate = task.endDate ? new Date(task.endDate) : null
-                      const hoursUntilDeadline = endDate ? (endDate - now) / (1000 * 60 * 60) : null
-                      const isOverdue = endDate && endDate < now && task.status !== 'COMPLETED'
-                      const isNearDeadline = hoursUntilDeadline && hoursUntilDeadline > 0 && hoursUntilDeadline <= 6 && task.status !== 'COMPLETED'
-                      
-                      const getRowClass = () => {
-                        if (isOverdue) return 'bg-gray-900 text-white'
-                        if (isNearDeadline) return 'bg-red-50'
-                        if (task.status === 'WAITING') return 'bg-yellow-50'
-                        return ''
-                      }
+            <div className="space-y-3">
+              {tasks.map((task) => {
+                const now = new Date()
+                const taskEndDate = task.endDate ? new Date(task.endDate) : null
+                const hoursUntilDeadline = taskEndDate ? (taskEndDate - now) / (1000 * 60 * 60) : null
+                const isOverdue = taskEndDate && taskEndDate < now && task.status !== 'COMPLETED'
+                const isNearDeadline = hoursUntilDeadline && hoursUntilDeadline > 0 && hoursUntilDeadline <= 6 && task.status !== 'COMPLETED'
 
-                      const formatDate = (dateString) => {
-                        if (!dateString) return 'N/A'
-                        return new Date(dateString).toLocaleDateString('vi-VN', {
-                          year: 'numeric',
-                          month: '2-digit',
-                          day: '2-digit',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })
-                      }
+                const formatDate = (dateString) => {
+                  if (!dateString) return 'N/A'
+                  return new Date(dateString).toLocaleDateString('vi-VN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })
+                }
 
-                      return (
-                        <tr 
-                          key={task.taskId} 
-                          className={`hover:bg-gray-50 transition-colors cursor-pointer ${getRowClass()}`}
-                          onClick={() => navigate(`${basePath}/tasks/${task.taskId}`)}
-                        >
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className={`text-sm font-medium ${isOverdue ? 'text-white' : 'text-gray-900'}`}>
-                              {task.title}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className={`text-sm ${isOverdue ? 'text-gray-300' : 'text-gray-600'} max-w-md truncate`}>
-                              {task.description || '-'}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            {isOverdue ? (
-                              <span className="px-2 py-1 text-xs font-semibold rounded-full bg-black text-white">
-                                {TASK_STATUS_LABELS[task.status] || task.status} - Quá hạn
-                              </span>
-                            ) : isNearDeadline ? (
-                              <span className="px-2 py-1 text-xs font-semibold rounded-full bg-red-500 text-white">
-                                {TASK_STATUS_LABELS[task.status] || task.status} - Sắp hết hạn
-                              </span>
-                            ) : task.status === 'WAITING' ? (
-                              <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-400 text-yellow-900">
-                                {TASK_STATUS_LABELS[task.status] || task.status}
-                              </span>
-                            ) : (
-                              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${TASK_STATUS_COLORS[task.status] || TASK_STATUS_COLORS.PENDING}`}>
-                                {TASK_STATUS_LABELS[task.status] || task.status}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
+                return (
+                  <div
+                    key={task.taskId}
+                    onClick={() => navigate(`${basePath}/tasks/${task.taskId}`)}
+                    className={`p-4 rounded-lg border cursor-pointer hover:shadow-md transition-all ${
+                      isOverdue ? 'bg-gray-900 text-white border-gray-700' :
+                      isNearDeadline ? 'bg-red-50 border-red-200' :
+                      'bg-white border-gray-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center space-x-3 mb-2">
+                          <h4 className={`text-base font-semibold ${isOverdue ? 'text-white' : 'text-gray-900'}`}>
+                            {task.title}
+                          </h4>
+                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                            isOverdue ? 'bg-gray-800 text-white' :
+                            isNearDeadline ? 'bg-red-500 text-white' :
+                            TASK_STATUS_COLORS[task.status] || TASK_STATUS_COLORS.PENDING
+                          }`}>
+                            {TASK_STATUS_LABELS[task.status] || task.status}
+                          </span>
+                        </div>
+                        
+                        {task.description && (
+                          <p className={`text-sm mb-3 ${isOverdue ? 'text-gray-300' : 'text-gray-600'} line-clamp-2`}>
+                            {task.description}
+                          </p>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-4 text-sm">
+                          {/* Phòng ban */}
+                          {task.departmentNames && task.departmentNames.length > 0 && (
                             <div className="flex items-center space-x-2">
-                              <div className="flex-1 bg-gray-200 rounded-full h-2 min-w-[100px]">
-                                <div 
-                                  className="bg-blue-600 h-2 rounded-full transition-all"
-                                  style={{ width: `${task.progress || 0}%` }}
-                                />
+                              <svg className={`w-4 h-4 ${isOverdue ? 'text-gray-400' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                              </svg>
+                              <div className="flex flex-wrap gap-1">
+                                {task.departmentNames.slice(0, 3).map((name, idx) => (
+                                  <span 
+                                    key={idx} 
+                                    className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                      isOverdue 
+                                        ? 'bg-blue-900 text-blue-100 border border-blue-700' 
+                                        : 'bg-blue-100 text-blue-800 border border-blue-200'
+                                    }`}
+                                  >
+                                    {name}
+                                  </span>
+                                ))}
+                                {task.departmentNames.length > 3 && (
+                                  <span className={`px-2 py-1 text-xs font-medium ${isOverdue ? 'text-gray-300' : 'text-gray-600'}`}>
+                                    +{task.departmentNames.length - 3}
+                                  </span>
+                                )}
                               </div>
-                              <span className={`text-sm font-medium ${isOverdue ? 'text-white' : 'text-gray-900'}`}>
-                                {task.progress || 0}%
-                              </span>
                             </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className={`text-sm ${isOverdue ? 'text-gray-300' : 'text-gray-600'}`}>
-                              {formatDate(task.startDate)}
+                          )}
+
+                          {/* Thời gian */}
+                          {task.startDate && task.endDate && (
+                            <div className={`flex items-center space-x-2 ${isOverdue ? 'text-gray-300' : 'text-gray-600'}`}>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                              <span>{formatDate(task.startDate)} - {formatDate(task.endDate)}</span>
                             </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className={`text-sm ${isOverdue ? 'text-red-300' : isNearDeadline ? 'text-red-600' : 'text-gray-600'}`}>
-                              {formatDate(task.endDate)}
+                          )}
+
+                          {/* Tiến độ */}
+                          <div className="flex items-center space-x-2">
+                            <div className={`w-24 rounded-full h-2 ${isOverdue ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                              <div 
+                                className={`h-2 rounded-full transition-all ${
+                                  task.progress === 100 ? 'bg-green-500' : isOverdue ? 'bg-gray-500' : 'bg-blue-500'
+                                }`}
+                                style={{ width: `${task.progress || 0}%` }}
+                              />
                             </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <div className="flex items-center justify-end space-x-3">
-                              {/* Chỉ hiển thị nút chỉnh sửa cho DIRECTOR và MANAGER */}
-                              {(userRole === 'DIRECTOR' || userRole === 'MANAGER') && (
-                                <button
-                                  onClick={(e) => handleEditClick(task, e)}
-                                  className="text-blue-600 hover:text-blue-900 transition-colors font-medium"
-                                >
-                                  Chỉnh sửa
-                                </button>
-                              )}
-                              <button
-                                onClick={(e) => handleAssignClick(task, e)}
-                                className="text-green-600 hover:text-green-900 transition-colors font-medium"
-                              >
-                                Giao task
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            <span className={`text-sm font-medium min-w-[40px] ${isOverdue ? 'text-gray-300' : 'text-gray-700'}`}>
+                              {task.progress || 0}%
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Hiển thị lý do chờ */}
+                        {(task.status === 'WAITING' || (task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0)) && (
+                          <div className="mt-3">
+                            {task.waitingReason ? (
+                              <div className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-orange-700'} bg-orange-50 border border-orange-200 rounded-md p-2`}>
+                                <span className="font-semibold">Lý do chờ:</span> <span className="break-words">{task.waitingReason}</span>
+                              </div>
+                            ) : task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0 ? (
+                              <div className="space-y-1">
+                                {Object.entries(task.departmentWaitingReasons).map(([deptId, reason]) => {
+                                  if (!reason || !reason.trim()) return null
+                                  const deptIndex = task.departmentIds?.indexOf(parseInt(deptId))
+                                  const deptName = deptIndex !== -1 && task.departmentNames?.[deptIndex] 
+                                    ? task.departmentNames[deptIndex] 
+                                    : `Phòng ban ${deptId}`
+                                  return (
+                                    <div key={deptId} className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-orange-700'} bg-orange-50 border border-orange-200 rounded-md p-2`}>
+                                      <span className="font-semibold">{deptName}:</span> <span className="break-words">{reason}</span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-2 ml-4 flex-shrink-0">
+                        {/* Chỉ hiển thị nút chỉnh sửa cho DIRECTOR và MANAGER */}
+                        {(userRole === 'DIRECTOR' || userRole === 'MANAGER') && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEditClick(task, e)
+                            }}
+                            className="px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                          >
+                            Chỉnh sửa
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleAssignClick(task, e)
+                          }}
+                          className="px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
+                        >
+                          Giao task
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            navigate(`${basePath}/tasks/${task.taskId}`)
+                          }}
+                          className="px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors"
+                        >
+                          Chi tiết
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </>
@@ -601,6 +667,7 @@ const DepartmentTasksPage = () => {
               startDate: '',
               endDate: ''
             })
+            setTaskFiles([]) // Clear files when closing modal
             setValidationErrors({})
             setError('')
           }
@@ -649,6 +716,21 @@ const DepartmentTasksPage = () => {
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               rows={4}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            />
+          </div>
+          
+          {/* File Upload */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Đính kèm file
+            </label>
+            <FileUpload
+              onFileSelect={handleFileSelect}
+              onFileRemove={handleFileRemove}
+              selectedFiles={taskFiles}
+              disabled={isSubmitting || uploadingFiles}
+              maxFiles={10}
+              maxSize={50 * 1024 * 1024} // 50MB
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -728,16 +810,16 @@ const DepartmentTasksPage = () => {
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || uploadingFiles}
               className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
             >
-              {isSubmitting && (
+              {(isSubmitting || uploadingFiles) && (
                 <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
               )}
-              <span>{isSubmitting ? 'Đang tạo...' : 'Tạo'}</span>
+              <span>{uploadingFiles ? 'Đang upload file...' : (isSubmitting ? 'Đang tạo...' : 'Tạo')}</span>
             </button>
           </div>
         </form>

@@ -1,15 +1,10 @@
 import { useState, useEffect } from 'react'
-import { reportService } from '../services/reportService'
-import { departmentService } from '../services/departmentService'
-import { directorService } from '../services/directorService'
-import { getCurrentUser } from '../utils/auth'
-import DepartmentDailyReportsPage from './manager/DepartmentDailyReportsPage'
+import { reportService } from '../../services/reportService'
+import { departmentService } from '../../services/departmentService'
+import { directorService } from '../../services/directorService'
+import ErrorMessage from '../../components/ErrorMessage'
 
-const ReportsPage = ({ role = 'super-admin' }) => {
-  // Nếu là Manager, hiển thị trang tổng hợp báo cáo cuối ngày
-  if (role === 'manager') {
-    return <DepartmentDailyReportsPage />
-  }
+const OtherReportsPage = () => {
   const [loading, setLoading] = useState(false)
   const [departments, setDepartments] = useState([])
   const [error, setError] = useState('')
@@ -21,27 +16,15 @@ const ReportsPage = ({ role = 'super-admin' }) => {
 
   useEffect(() => {
     loadDepartments()
-  }, [role])
+  }, [])
 
   const loadDepartments = async () => {
     try {
-      if (role === 'super-admin') {
-        // Super admin có thể xem tất cả departments, nhưng cần chọn director trước
-        // Tạm thời để trống, có thể thêm filter theo director sau
-        setDepartments([])
-      } else if (role === 'director') {
-        const response = await directorService.getMyDirector()
-        const director = response.data.result
-        if (director) {
-          const deptResponse = await departmentService.getDepartmentsByDirectorId(director.directorId)
-          setDepartments(deptResponse.data.result || [])
-        }
-      } else if (role === 'manager') {
-        const user = getCurrentUser()
-        if (user) {
-          const deptResponse = await departmentService.getDepartmentsByManagerId(user.userId)
-          setDepartments(deptResponse.data.result || [])
-        }
+      const response = await directorService.getMyDirector()
+      const director = response.data.result
+      if (director) {
+        const deptResponse = await departmentService.getDepartmentsByDirectorId(director.directorId)
+        setDepartments(deptResponse.data.result || [])
       }
     } catch (err) {
       console.error('Error loading departments:', err)
@@ -112,29 +95,11 @@ const ReportsPage = ({ role = 'super-admin' }) => {
     }
   }
 
-  const getTitle = () => {
-    switch (role) {
-      case 'super-admin':
-        return ''
-      case 'director':
-        return ''
-      case 'manager':
-        return ''
-      default:
-        return ''
-    }
-  }
-
   return (
-    <div>
-      <div className="mb-6">
-      </div>
+    <div className="max-w-6xl mx-auto">
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Báo cáo khác</h1>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
-          {error}
-        </div>
-      )}
+      {error && <ErrorMessage message={error} />}
 
       <div className="bg-white rounded-lg shadow-md p-6 space-y-6">
         <div>
@@ -205,5 +170,5 @@ const ReportsPage = ({ role = 'super-admin' }) => {
   )
 }
 
-export default ReportsPage
+export default OtherReportsPage
 

@@ -29,6 +29,13 @@ const CompanyUsersPage = () => {
   })
   const [exportingReport, setExportingReport] = useState(false)
   const [roles, setRoles] = useState([])
+  const [allDepartments, setAllDepartments] = useState([])
+  const [showDepartmentModal, setShowDepartmentModal] = useState(false)
+  const [selectedUserForDepartment, setSelectedUserForDepartment] = useState(null)
+  const [userDepartmentIds, setUserDepartmentIds] = useState([])
+  const [isUpdatingDepartments, setIsUpdatingDepartments] = useState(false)
+  const [openActionMenu, setOpenActionMenu] = useState(null) // userId của menu đang mở
+  const [showDepartmentList, setShowDepartmentList] = useState(null) // userId để hiển thị danh sách phòng ban
   const [formData, setFormData] = useState({
     userName: '',
     password: '',
@@ -48,11 +55,13 @@ const CompanyUsersPage = () => {
   useEffect(() => {
     loadDirector()
     loadRoles()
+    loadAllDepartments()
   }, [])
 
   useEffect(() => {
     if (director) {
       loadUsers()
+      loadAllDepartments()
     }
   }, [director, currentPage])
 
@@ -77,6 +86,17 @@ const CompanyUsersPage = () => {
     } catch (err) {
       console.error('Error loading roles:', err)
       setRoles([])
+    }
+  }
+
+  const loadAllDepartments = async () => {
+    if (!director) return
+    try {
+      const response = await departmentService.getDepartmentsByDirectorId(director.directorId)
+      setAllDepartments(response.data.result || [])
+    } catch (err) {
+      console.error('Error loading departments:', err)
+      setAllDepartments([])
     }
   }
 
@@ -355,6 +375,56 @@ const CompanyUsersPage = () => {
     }
   }
 
+  const handleManageDepartments = (user) => {
+    setSelectedUserForDepartment(user)
+    const departments = userDepartments[user.userId] || []
+    setUserDepartmentIds(departments.map(dept => dept.departmentId))
+    setShowDepartmentModal(true)
+    setError('')
+  }
+
+  const handleUpdateUserDepartments = async () => {
+    if (!selectedUserForDepartment || !director) return
+
+    try {
+      setIsUpdatingDepartments(true)
+      setError('')
+
+      // Lấy danh sách phòng ban hiện tại của user
+      const currentDeptResponse = await departmentService.getDepartmentsByUserId(selectedUserForDepartment.userId)
+      const currentDepartments = currentDeptResponse.data.result || []
+      const currentDeptIds = currentDepartments.map(dept => dept.departmentId)
+
+      // Tìm các phòng ban cần thêm và cần xóa
+      const toAdd = userDepartmentIds.filter(id => !currentDeptIds.includes(id))
+      const toRemove = currentDeptIds.filter(id => !userDepartmentIds.includes(id))
+
+      // Thêm user vào các phòng ban mới
+      await Promise.all(
+        toAdd.map(deptId => 
+          departmentService.addUserToDepartment(deptId, selectedUserForDepartment.userId)
+        )
+      )
+
+      // Xóa user khỏi các phòng ban cũ
+      await Promise.all(
+        toRemove.map(deptId => 
+          departmentService.removeUserFromDepartment(deptId, selectedUserForDepartment.userId)
+        )
+      )
+
+      // Reload data
+      await loadUsers()
+      setShowDepartmentModal(false)
+      setSelectedUserForDepartment(null)
+      setUserDepartmentIds([])
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi cập nhật phòng ban')
+    } finally {
+      setIsUpdatingDepartments(false)
+    }
+  }
+
   const handleExportUserReport = async () => {
     if (!selectedUserForReport) return
 
@@ -401,14 +471,25 @@ const CompanyUsersPage = () => {
 
   return (
     <div>
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Quản lý nhân viên</h1>
+        <p className="text-sm sm:text-base text-gray-600">Quản lý thông tin và phân quyền nhân viên trong công ty</p>
+      </div>
+
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 sm:mb-6 gap-3">
-        <div>
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-gray-600">
+            Tổng số nhân viên: <span className="font-semibold text-gray-900">{users.length}</span>
+          </div>
         </div>
         <button
           onClick={() => setShowAssignModal(true)}
-          className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg sm:rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl font-semibold flex items-center justify-center space-x-2 text-sm sm:text-base"
+          className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-blue-700 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-md hover:shadow-lg font-semibold flex items-center justify-center space-x-2 text-sm sm:text-base"
         >
-          <span>+</span>
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
           <span>Thêm nhân viên</span>
         </button>
       </div>
@@ -477,7 +558,7 @@ const CompanyUsersPage = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                         </svg>
                         <div className="flex flex-wrap gap-1 flex-1">
-                          {departments.map((dept) => (
+                          {departments.slice(0, 2).map((dept) => (
                             <span
                               key={dept.departmentId}
                               className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200"
@@ -485,15 +566,64 @@ const CompanyUsersPage = () => {
                               {dept.departmentName}
                             </span>
                           ))}
+                          {departments.length > 2 && (
+                            <div className="relative">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setShowDepartmentList(showDepartmentList === user.userId ? null : user.userId)
+                                }}
+                                className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200 cursor-pointer hover:bg-gray-200"
+                              >
+                                +{departments.length - 2}
+                              </button>
+                              
+                              {showDepartmentList === user.userId && (
+                                <>
+                                  <div 
+                                    className="fixed inset-0 z-10" 
+                                    onClick={() => setShowDepartmentList(null)}
+                                  />
+                                  <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-20 p-3">
+                                    <div className="text-xs font-semibold text-gray-700 mb-2">Danh sách phòng ban:</div>
+                                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                                      {departments.map((dept) => (
+                                        <div
+                                          key={dept.departmentId}
+                                          className="flex items-center space-x-2 px-2 py-1.5 rounded hover:bg-gray-50"
+                                        >
+                                          <svg className="w-3.5 h-3.5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                          </svg>
+                                          <span className="text-xs text-gray-700">{dept.departmentName}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
                     {departments.length === 0 && (
-                      <div className="flex items-center space-x-1.5">
-                        <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                        </svg>
-                        <span className="text-xs text-gray-400">Chưa có phòng ban</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-1.5">
+                          <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                          </svg>
+                          <span className="text-xs text-gray-400">Chưa có phòng ban</span>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleManageDepartments(user)
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                        >
+                          Thêm
+                        </button>
                       </div>
                     )}
                   </div>
@@ -511,7 +641,7 @@ const CompanyUsersPage = () => {
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      <span>Báo cáo</span>
+                      <span>Xuất báo cáo</span>
                     </button>
                     <button
                       onClick={(e) => {
@@ -544,137 +674,240 @@ const CompanyUsersPage = () => {
           </div>
 
           {/* Desktop Table View */}
-          <div className="hidden md:block bg-white rounded-lg shadow-md overflow-hidden">
+          <div className="hidden md:block bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+                <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Tên đầy đủ
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Tên đăng nhập
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Email
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Số điện thoại
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Vai trò
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Phòng ban
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Thao tác
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {users.map((user) => {
-                    const departments = userDepartments[user.userId] || []
-                    return (
-                      <tr key={user.userId} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">{user.fullName}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-600">@{user.userName}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-600 truncate max-w-xs">{user.email || '-'}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-600">{user.phoneNumber || '-'}</div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-wrap gap-1">
-                            {user.roles && user.roles.length > 0 ? (
-                              user.roles.map((role, index) => (
-                                <span
-                                  key={index}
-                                  className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                  {users.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="px-6 py-12 text-center">
+                        <div className="flex flex-col items-center justify-center">
+                          <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                          </svg>
+                          <p className="text-gray-500 text-sm font-medium">Chưa có nhân viên nào</p>
+                          <p className="text-gray-400 text-xs mt-1">Nhấn "Thêm nhân viên" để bắt đầu</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    users.map((user) => {
+                      const departments = userDepartments[user.userId] || []
+                      return (
+                        <tr key={user.userId} className="hover:bg-blue-50/50 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-semibold text-gray-900">{user.fullName}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-600 font-mono">@{user.userName}</div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="text-sm text-gray-600 max-w-xs truncate" title={user.email || ''}>
+                              {user.email || <span className="text-gray-400">-</span>}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-600">{user.phoneNumber || <span className="text-gray-400">-</span>}</div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-1.5">
+                              {user.roles && user.roles.length > 0 ? (
+                                user.roles.map((role, index) => (
+                                  <span
+                                    key={index}
+                                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200"
+                                  >
+                                    {role === 'USER' ? 'Nhân viên' : role === 'MANAGER' ? 'Trưởng phòng' : role}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-sm text-gray-400">-</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-start gap-2 max-w-md">
+                              <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
+                                {departments.length > 0 ? (
+                                  <>
+                                    {departments.slice(0, 2).map((dept) => (
+                                      <span
+                                        key={dept.departmentId}
+                                        className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200 whitespace-nowrap hover:bg-green-200 transition-colors"
+                                        title={dept.departmentName}
+                                      >
+                                        {dept.departmentName}
+                                      </span>
+                                    ))}
+                                    {departments.length > 2 && (
+                                      <div className="relative">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setShowDepartmentList(showDepartmentList === user.userId ? null : user.userId)
+                                          }}
+                                          className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200 cursor-pointer hover:bg-gray-200 transition-colors"
+                                        >
+                                          +{departments.length - 2} phòng ban
+                                        </button>
+                                        
+                                        {showDepartmentList === user.userId && (
+                                          <>
+                                            <div 
+                                              className="fixed inset-0 z-10" 
+                                              onClick={() => setShowDepartmentList(null)}
+                                            />
+                                            <div className="absolute left-0 top-full mt-1 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-20 p-3">
+                                              <div className="text-xs font-semibold text-gray-700 mb-2">Danh sách phòng ban:</div>
+                                              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                                                {departments.map((dept) => (
+                                                  <div
+                                                    key={dept.departmentId}
+                                                    className="flex items-center space-x-2 px-2 py-1.5 rounded hover:bg-gray-50"
+                                                  >
+                                                    <svg className="w-3.5 h-3.5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                                    </svg>
+                                                    <span className="text-xs text-gray-700">{dept.departmentName}</span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          </>
+                                        )}
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className="text-sm text-gray-400 italic">Chưa có phòng ban</span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center justify-end">
+                              <div className="relative">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setOpenActionMenu(openActionMenu === user.userId ? null : user.userId)
+                                  }}
+                                  className="inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                                  title="Thao tác"
                                 >
-                                  {role === 'USER' ? 'Nhân viên' : role === 'MANAGER' ? 'Trưởng phòng' : role}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-sm text-gray-400">-</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-wrap gap-1">
-                            {departments.length > 0 ? (
-                              departments.map((dept) => (
-                                <span
-                                  key={dept.departmentId}
-                                  className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200"
-                                >
-                                  {dept.departmentName}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-sm text-gray-400">Chưa có phòng ban</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <div className="flex items-center justify-end space-x-3">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedUserForReport(user)
-                                setShowReportModal(true)
-                              }}
-                              className="text-green-600 hover:text-green-900 px-2 py-1 rounded hover:bg-green-50"
-                              title="Xuất báo cáo"
-                            >
-                              Báo cáo
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleEditUser(user)
-                              }}
-                              className="text-blue-600 hover:text-blue-900 px-2 py-1 rounded hover:bg-blue-50"
-                            >
-                              Chỉnh sửa
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleRemoveUser(user)
-                              }}
-                              className="text-red-600 hover:text-red-900 px-2 py-1 rounded hover:bg-red-50"
-                            >
-                              Xóa
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                  </svg>
+                                </button>
+                                
+                                {openActionMenu === user.userId && (
+                                  <>
+                                    <div 
+                                      className="fixed inset-0 z-10" 
+                                      onClick={() => setOpenActionMenu(null)}
+                                    />
+                                    <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-20 py-1">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setSelectedUserForReport(user)
+                                          setShowReportModal(true)
+                                          setOpenActionMenu(null)
+                                        }}
+                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                      >
+                                        <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        <span>Xuất báo cáo</span>
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleEditUser(user)
+                                          setOpenActionMenu(null)
+                                        }}
+                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                      >
+                                        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        </svg>
+                                        <span>Chỉnh sửa</span>
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleManageDepartments(user)
+                                          setOpenActionMenu(null)
+                                        }}
+                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                      >
+                                        <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                        </svg>
+                                        <span>Quản lý phòng ban</span>
+                                      </button>
+                                      <div className="border-t border-gray-200 my-1"></div>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleRemoveUser(user)
+                                          setOpenActionMenu(null)
+                                        }}
+                                        className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                        <span>Xóa</span>
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
 
-          {users.length === 0 && (
-            <div className="text-center py-12 bg-white rounded-lg shadow">
-              <p className="text-gray-500">Chưa có nhân viên nào</p>
-            </div>
-          )}
-
           {totalPages > 1 && (
-            <div className="mt-6">
-            <Pagination
-              currentPage={currentPage + 1}
-              totalPages={totalPages}
-              onPageChange={(page) => setCurrentPage(page - 1)}
-            />
+            <div className="mt-6 flex justify-center">
+              <Pagination
+                currentPage={currentPage + 1}
+                totalPages={totalPages}
+                onPageChange={(page) => setCurrentPage(page - 1)}
+              />
             </div>
           )}
         </>
@@ -1191,6 +1424,109 @@ const CompanyUsersPage = () => {
                 </svg>
               )}
               <span>{exportingReport ? 'Đang xuất...' : 'Xuất báo cáo'}</span>
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Manage Departments Modal */}
+      <Modal
+        isOpen={showDepartmentModal}
+        onClose={() => {
+          if (!isUpdatingDepartments) {
+            setShowDepartmentModal(false)
+            setSelectedUserForDepartment(null)
+            setUserDepartmentIds([])
+            setError('')
+          }
+        }}
+        title={`Quản lý phòng ban - ${selectedUserForDepartment?.fullName || ''}`}
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm text-blue-800">
+              <strong>Nhân viên:</strong> {selectedUserForDepartment?.fullName} (@{selectedUserForDepartment?.userName})
+            </p>
+            <p className="text-xs text-blue-600 mt-1">
+              Chọn các phòng ban mà nhân viên này thuộc về. Nhân viên có thể thuộc nhiều phòng ban.
+            </p>
+          </div>
+
+          {allDepartments.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <p className="text-sm">Chưa có phòng ban nào trong công ty</p>
+              <p className="text-xs mt-1">Vui lòng tạo phòng ban trước khi gán cho nhân viên</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {allDepartments.map((dept) => (
+                <label
+                  key={dept.departmentId}
+                  className="flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={userDepartmentIds.includes(dept.departmentId)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setUserDepartmentIds([...userDepartmentIds, dept.departmentId])
+                      } else {
+                        setUserDepartmentIds(userDepartmentIds.filter(id => id !== dept.departmentId))
+                      }
+                    }}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-gray-900">{dept.departmentName}</div>
+                    {dept.description && (
+                      <div className="text-xs text-gray-500 mt-0.5">{dept.description}</div>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-1 text-xs text-gray-400">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+            <button
+              type="button"
+              onClick={() => {
+                if (!isUpdatingDepartments) {
+                  setShowDepartmentModal(false)
+                  setSelectedUserForDepartment(null)
+                  setUserDepartmentIds([])
+                  setError('')
+                }
+              }}
+              disabled={isUpdatingDepartments}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Hủy
+            </button>
+            <button
+              onClick={handleUpdateUserDepartments}
+              disabled={isUpdatingDepartments || allDepartments.length === 0}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            >
+              {isUpdatingDepartments && (
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              )}
+              <span>{isUpdatingDepartments ? 'Đang cập nhật...' : 'Cập nhật'}</span>
             </button>
           </div>
         </div>

@@ -229,28 +229,28 @@ const MyTasksPage = ({ basePath }) => {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4 sm:mb-6">
         <div>
         </div>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-3 sm:px-4 py-2 sm:py-3 rounded-lg mb-3 sm:mb-4 text-sm">
           {error}
         </div>
       )}
 
-      <div className="mb-6 space-y-4">
+      <div className="mb-4 sm:mb-6 space-y-3 sm:space-y-4">
         {/* Filter theo phòng ban */}
         {userDepartments.length > 0 && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
               Chọn phòng ban
             </label>
             <select
               value={selectedDepartment}
               onChange={(e) => setSelectedDepartment(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent min-w-[200px]"
+              className="w-full sm:w-auto px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent min-w-[150px] sm:min-w-[200px] text-sm"
             >
               <option value="all">Tất cả phòng ban</option>
               {userDepartments.map((dept) => (
@@ -264,13 +264,13 @@ const MyTasksPage = ({ basePath }) => {
 
         {/* Filter theo trạng thái */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
             Lọc theo trạng thái
           </label>
-        <div className="flex space-x-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setStatusFilter('all')}
-            className={`px-4 py-2 rounded-lg transition-colors ${
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg transition-colors text-xs sm:text-sm ${
               statusFilter === 'all'
                 ? 'bg-purple-600 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -280,7 +280,7 @@ const MyTasksPage = ({ basePath }) => {
           </button>
           <button
             onClick={() => setStatusFilter(TASK_STATUS.IN_PROGRESS)}
-            className={`px-4 py-2 rounded-lg transition-colors ${
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg transition-colors text-xs sm:text-sm ${
               statusFilter === TASK_STATUS.IN_PROGRESS
                 ? 'bg-purple-600 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -290,7 +290,7 @@ const MyTasksPage = ({ basePath }) => {
           </button>
           <button
             onClick={() => setStatusFilter(TASK_STATUS.WAITING)}
-            className={`px-4 py-2 rounded-lg transition-colors ${
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg transition-colors text-xs sm:text-sm ${
               statusFilter === TASK_STATUS.WAITING
                 ? 'bg-purple-600 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'

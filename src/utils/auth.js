@@ -48,3 +48,19 @@ export const logout = () => {
   window.location.href = '/login'
 }
 
+export const getAvatar = (userId) => {
+  if (!userId) return null
+  const avatarKey = `avatar_${userId}`
+  return localStorage.getItem(avatarKey)
+}
+
+export const setAvatar = (userId, avatarData) => {
+  if (!userId) return
+  const avatarKey = `avatar_${userId}`
+  if (avatarData) {
+    localStorage.setItem(avatarKey, avatarData)
+  } else {
+    localStorage.removeItem(avatarKey)
+  }
+}
+

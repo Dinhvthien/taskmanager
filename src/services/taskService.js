@@ -55,6 +55,16 @@ export const taskService = {
     return api.post(`/tasks/${taskId}/comments`, data)
   },
 
+  // Cập nhật comment
+  updateComment: (taskId, commentId, content) => {
+    return api.put(`/tasks/${taskId}/comments/${commentId}`, { content })
+  },
+
+  // Xóa comment
+  deleteComment: (taskId, commentId) => {
+    return api.delete(`/tasks/${taskId}/comments/${commentId}`)
+  },
+
   // Lấy evaluation của task
   getTaskEvaluation: (taskId) => {
     return api.get(`/tasks/${taskId}/evaluations`)

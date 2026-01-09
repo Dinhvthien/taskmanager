@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react'
 import { taskService } from '../../services/taskService'
 import { directorService } from '../../services/directorService'
 import { departmentService } from '../../services/departmentService'
+import { attachmentService } from '../../services/attachmentService'
 import TaskCard from '../../components/TaskCard'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import Modal from '../../components/Modal'
 import Pagination from '../../components/Pagination'
+import FileUpload from '../../components/FileUpload'
 
 const TasksPage = () => {
   const [tasks, setTasks] = useState([])
@@ -25,6 +27,9 @@ const TasksPage = () => {
     endDate: '',
     departmentIds: []
   })
+  const [taskFiles, setTaskFiles] = useState([]) // Files để đính kèm khi tạo task
+  const [uploadingFiles, setUploadingFiles] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     loadDirectors()
@@ -75,9 +80,22 @@ const TasksPage = () => {
     }
   }
 
+  // Handlers cho file upload
+  const handleFileSelect = (file) => {
+    setTaskFiles(prev => [...prev, file])
+  }
+
+  const handleFileRemove = (index) => {
+    setTaskFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
   const handleCreate = async (e) => {
     e.preventDefault()
+    if (isSubmitting || uploadingFiles) return
+    
     try {
+      setIsSubmitting(true)
+      setError('')
       const data = {
         ...formData,
         directorId: parseInt(formData.directorId),
@@ -85,7 +103,29 @@ const TasksPage = () => {
         endDate: new Date(formData.endDate).toISOString(),
         departmentIds: formData.departmentIds.map(id => parseInt(id))
       }
-      await taskService.createTask(data)
+      const createResponse = await taskService.createTask(data)
+      const createdTask = createResponse.data.result
+      const createdTaskId = createdTask.taskId
+      
+      // Upload files nếu có
+      if (taskFiles.length > 0 && createdTaskId) {
+        setUploadingFiles(true)
+        try {
+          console.log(`📎 Uploading ${taskFiles.length} file(s) to new task ${createdTaskId}`)
+          for (const file of taskFiles) {
+            try {
+              await attachmentService.uploadTaskAttachment(createdTaskId, file)
+              console.log(`✅ File uploaded to task ${createdTaskId}:`, file.name)
+            } catch (fileErr) {
+              console.error('✗ Error uploading file:', fileErr)
+              // Continue với các file khác nếu một file lỗi
+            }
+          }
+        } finally {
+          setUploadingFiles(false)
+        }
+      }
+      
       setShowCreateModal(false)
       setFormData({
         directorId: '',
@@ -95,9 +135,12 @@ const TasksPage = () => {
         endDate: '',
         departmentIds: []
       })
+      setTaskFiles([]) // Clear files
       loadTasks(selectedDirector)
     } catch (err) {
       setError(err.response?.data?.message || 'Lỗi khi tạo task')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -195,7 +238,10 @@ const TasksPage = () => {
 
       <Modal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => {
+          setShowCreateModal(false)
+          setTaskFiles([]) // Clear files when closing modal
+        }}
         title="Tạo Task mới"
         size="lg"
       >
@@ -267,6 +313,21 @@ const TasksPage = () => {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
+          
+          {/* File Upload */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Đính kèm file
+            </label>
+            <FileUpload
+              onFileSelect={handleFileSelect}
+              onFileRemove={handleFileRemove}
+              selectedFiles={taskFiles}
+              disabled={isSubmitting || uploadingFiles}
+              maxFiles={10}
+              maxSize={50 * 1024 * 1024} // 50MB
+            />
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -296,16 +357,27 @@ const TasksPage = () => {
           <div className="flex justify-end space-x-3 pt-4">
             <button
               type="button"
-              onClick={() => setShowCreateModal(false)}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              onClick={() => {
+                setShowCreateModal(false)
+                setTaskFiles([]) // Clear files when closing modal
+              }}
+              disabled={isSubmitting || uploadingFiles}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
               Hủy
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              disabled={isSubmitting || uploadingFiles}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
             >
-              Tạo
+              {(isSubmitting || uploadingFiles) && (
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              )}
+              <span>{uploadingFiles ? 'Đang upload file...' : (isSubmitting ? 'Đang tạo...' : 'Tạo')}</span>
             </button>
           </div>
         </form>
