@@ -55,9 +55,17 @@ const ProfilePage = () => {
     }
   }
 
-  const loadAvatar = () => {
+  const loadAvatar = async () => {
     const currentUser = getCurrentUser()
     if (currentUser) {
+      // First try to load from server (avatarUrl from user object)
+      if (currentUser.avatarUrl) {
+        const avatarUrl = userService.getAvatarUrl(currentUser.userId)
+        setAvatarPreview(avatarUrl)
+        return
+      }
+      
+      // Fallback to localStorage (for backward compatibility)
       const savedAvatar = getAvatar(currentUser.userId)
       if (savedAvatar) {
         setAvatarPreview(savedAvatar)
@@ -65,7 +73,7 @@ const ProfilePage = () => {
     }
   }
 
-  const handleAvatarChange = (e) => {
+  const handleAvatarChange = async (e) => {
     const file = e.target.files[0]
     if (!file) return
 
@@ -81,24 +89,60 @@ const ProfilePage = () => {
       return
     }
 
-    // Read file and create preview
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const base64String = reader.result
-      setAvatarPreview(base64String)
+    try {
+      setSaving(true)
+      setError('')
       
-      // Save to localStorage
-      const currentUser = getCurrentUser()
-      if (currentUser) {
-        setAvatar(currentUser.userId, base64String)
+      // Read file and create preview
+      const reader = new FileReader()
+      reader.onloadend = async () => {
+        const base64String = reader.result
+        setAvatarPreview(base64String)
+        
+        // Upload to server
+        const response = await userService.uploadAvatar(file)
+        const updatedUser = response.data.result
+        
+        // Update user in localStorage with new avatarUrl
+        const currentUser = getCurrentUser()
+        if (currentUser) {
+          // Reload full user info from server to ensure consistency
+          try {
+            const userResponse = await userService.getCurrentUser()
+            const fullUser = userResponse.data.result
+            const newUser = {
+              ...currentUser,
+              avatarUrl: fullUser.avatarUrl
+            }
+            localStorage.setItem('user', JSON.stringify(newUser))
+            // Update preview with new URL
+            const avatarUrl = userService.getAvatarUrl(currentUser.userId)
+            setAvatarPreview(avatarUrl)
+          } catch (err) {
+            console.error('Error reloading user:', err)
+            // Fallback: Use response data
+            const newUser = {
+              ...currentUser,
+              avatarUrl: updatedUser.avatarUrl
+            }
+            localStorage.setItem('user', JSON.stringify(newUser))
+          }
+        }
+        
         setSuccess('Avatar đã được cập nhật')
         setTimeout(() => setSuccess(''), 3000)
+        setSaving(false)
       }
+      reader.onerror = () => {
+        setError('Lỗi khi đọc file ảnh')
+        setSaving(false)
+      }
+      reader.readAsDataURL(file)
+    } catch (err) {
+      console.error('Error uploading avatar:', err)
+      setError(err.response?.data?.message || 'Lỗi khi upload avatar')
+      setSaving(false)
     }
-    reader.onerror = () => {
-      setError('Lỗi khi đọc file ảnh')
-    }
-    reader.readAsDataURL(file)
   }
 
   const handleInputChange = (e) => {
@@ -155,14 +199,28 @@ const ProfilePage = () => {
       // Update user
       await userService.updateUser(currentUser.userId, updateData)
       
-      // Update local storage user info
-      const updatedUser = {
-        ...currentUser,
-        fullName: formData.fullName,
-        email: formData.email,
-        phoneNumber: formData.phoneNumber
+      // Reload user info from server to get latest avatarUrl
+      try {
+        const userResponse = await userService.getCurrentUser()
+        const fullUser = userResponse.data.result
+        const updatedUser = {
+          ...currentUser,
+          fullName: fullUser.fullName,
+          email: fullUser.email,
+          phoneNumber: fullUser.phoneNumber,
+          avatarUrl: fullUser.avatarUrl // Update avatarUrl from server
+        }
+        localStorage.setItem('user', JSON.stringify(updatedUser))
+      } catch (err) {
+        // Fallback: Update manually
+        const updatedUser = {
+          ...currentUser,
+          fullName: formData.fullName,
+          email: formData.email,
+          phoneNumber: formData.phoneNumber
+        }
+        localStorage.setItem('user', JSON.stringify(updatedUser))
       }
-      localStorage.setItem('user', JSON.stringify(updatedUser))
 
       setSuccess('Cập nhật thông tin thành công')
       

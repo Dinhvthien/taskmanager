@@ -11,8 +11,10 @@ const FileUpload = ({ onFileSelect, onFileRemove, selectedFiles = [], disabled =
     const files = Array.from(e.target.files)
     setError('')
     
-    console.log(`📁 FileUpload component (ID: ${fileInputId}) received ${files.length} file(s):`, files.map(f => f.name))
-    console.log(`   Current selectedFiles count: ${selectedFiles.length}, maxFiles: ${maxFiles}`)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`📁 FileUpload component (ID: ${fileInputId}) received ${files.length} file(s):`, files.map(f => f.name))
+      console.log(`   Current selectedFiles count: ${selectedFiles.length}, maxFiles: ${maxFiles}`)
+    }
 
     // Validate number of files
     if (selectedFiles.length + files.length > maxFiles) {
@@ -31,7 +33,9 @@ const FileUpload = ({ onFileSelect, onFileRemove, selectedFiles = [], disabled =
     }
 
     files.forEach(file => {
-      console.log(`📤 Calling onFileSelect callback for file: "${file.name}" (ID: ${fileInputId})`)
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`📤 Calling onFileSelect callback for file: "${file.name}" (ID: ${fileInputId})`)
+      }
       onFileSelect(file)
     })
 

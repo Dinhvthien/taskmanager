@@ -45,6 +45,12 @@ export const isAuthenticated = () => {
 export const logout = () => {
   localStorage.removeItem('token')
   localStorage.removeItem('user')
+  // Clear all avatar data from localStorage
+  Object.keys(localStorage).forEach(key => {
+    if (key.startsWith('avatar_')) {
+      localStorage.removeItem(key)
+    }
+  })
   window.location.href = '/login'
 }
 

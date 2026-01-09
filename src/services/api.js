@@ -34,7 +34,9 @@ api.interceptors.response.use(
     } else if (error.response?.status === 403) {
       // Xử lý khi không có quyền
       const message = error.response?.data?.message || 'Bạn không có quyền thực hiện thao tác này'
-      console.error('Forbidden:', message)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Forbidden:', message)
+      }
       // Có thể hiển thị toast notification hoặc redirect
     }
     return Promise.reject(error)

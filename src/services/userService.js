@@ -48,6 +48,23 @@ export const userService = {
   // Xóa user
   deleteUser: (userId) => {
     return api.delete(`/users/${userId}`)
+  },
+
+  // Upload avatar
+  uploadAvatar: (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post('/users/me/avatar', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+  },
+
+  // Get avatar URL
+  getAvatarUrl: (userId) => {
+    const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+    return `${baseURL}/users/${userId}/avatar`
   }
 }
 

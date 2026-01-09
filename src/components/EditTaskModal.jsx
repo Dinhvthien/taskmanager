@@ -187,7 +187,7 @@ const EditTaskModal = ({ isOpen, onClose, task, onUpdate }) => {
         userIds: assignmentMode === 'direct' && formData.userIds.length > 0 ? formData.userIds.map(id => parseInt(id)) : null
       }
       
-      // Xử lý số giờ thực tế dự kiến
+      // Xử lý thời gian định mức
       if (formData.actualTimeUnit && formData.actualTimeValue) {
         const value = parseInt(formData.actualTimeValue)
         switch (formData.actualTimeUnit) {
@@ -337,10 +337,10 @@ const EditTaskModal = ({ isOpen, onClose, task, onUpdate }) => {
           </div>
         </div>
 
-        {/* Số giờ thực tế dự kiến */}
+        {/* Thời gian định mức */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-3">
-            Số giờ thực tế dự kiến (tùy chọn)
+            Thời gian định mức
           </label>
           <div className="grid grid-cols-2 gap-4">
             <div>

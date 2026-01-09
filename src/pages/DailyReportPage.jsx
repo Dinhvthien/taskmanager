@@ -5,6 +5,7 @@ import dailyReportService from '../services/dailyReportService'
 import { getCurrentUser } from '../utils/auth'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ErrorMessage from '../components/ErrorMessage'
+import WorkTimeline from '../components/WorkTimeline'
 import { PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
 
 const DailyReportPage = () => {
@@ -18,7 +19,31 @@ const DailyReportPage = () => {
   const [selectedTasks, setSelectedTasks] = useState([]) // Array of { taskId, task, priority, comment }
   const [adHocTasks, setAdHocTasks] = useState([])
   const [submitted, setSubmitted] = useState(false)
-  const [todayReport, setTodayReport] = useState(null) // Báo cáo đã đăng ký trong ngày (cho mode report)
+  const [todayReport, setTodayReport] = useState(null) // Báo cáo đang xem/sửa trong ngày (cho mode report)
+  const [todayReports, setTodayReports] = useState([]) // Tất cả báo cáo trong ngày hôm nay
+  const [selectedReportId, setSelectedReportId] = useState(null) // ID của báo cáo đang chọn để xem/sửa
+  
+  // Hàm kiểm tra báo cáo đã gửi chưa (dùng chung)
+  // Báo cáo chỉ được coi là "đã gửi" khi có comment (comment chỉ được cập nhật khi gọi updateDailyReportComments)
+  // selfScore KHÔNG được dùng để xác định "đã gửi" vì nó có thể được nhập trong mode register
+  const isReportSent = (report) => {
+    if (!report) return false
+    
+    // Báo cáo được coi là đã gửi CHỈ KHI có comment (comment chỉ được cập nhật qua updateDailyReportComments)
+    // selfScore không được dùng vì nó có thể được nhập khi đăng ký lịch làm việc
+    
+    // Kiểm tra task comments - có ít nhất một task có comment không rỗng
+    const hasTaskComment = report.selectedTasks && report.selectedTasks.length > 0 && 
+      report.selectedTasks.some(task => task.comment && task.comment.trim() !== '')
+    
+    // Kiểm tra adHocTask comments - có ít nhất một adHocTask có comment không rỗng
+    // KHÔNG kiểm tra selfScore vì selfScore có thể được nhập trong mode register
+    const hasAdHocComment = report.adHocTasks && report.adHocTasks.length > 0 && 
+      report.adHocTasks.some(ah => ah.comment && ah.comment.trim() !== '')
+    
+    // Báo cáo chỉ được coi là đã gửi nếu có comment (comment chỉ được cập nhật khi gọi updateDailyReportComments)
+    return hasTaskComment || hasAdHocComment
+  }
 
   // Lịch sử báo cáo (dùng chung cho nhân viên và manager)
   const today = new Date()
@@ -29,21 +54,61 @@ const DailyReportPage = () => {
   const [selectedHistoryDate, setSelectedHistoryDate] = useState(today.toISOString().split('T')[0])
   const [selectedHistoryReport, setSelectedHistoryReport] = useState(null)
   const [selectedHistoryReports, setSelectedHistoryReports] = useState([]) // Tất cả báo cáo của ngày được chọn
+  const [autoSaving, setAutoSaving] = useState(false)
+  const [lastSaved, setLastSaved] = useState(null)
+  const [autoSaveTimeout, setAutoSaveTimeout] = useState(null)
+  // Lưu trữ snapshot dữ liệu ban đầu để so sánh
+  const [initialDataSnapshot, setInitialDataSnapshot] = useState(null)
 
+  // Tối ưu: Gộp tất cả logic load dữ liệu ban đầu vào một useEffect duy nhất
   useEffect(() => {
-    loadTasks()
-  }, [])
+    let isMounted = true
+    
+    const initializeData = async () => {
+      // Load tasks luôn (cần cho mode register)
+      if (isMounted) {
+        await loadTasks()
+      }
+      
+      // Load báo cáo dựa trên mode từ URL
+      const urlMode = searchParams.get('mode') || 'register'
+      if (isMounted && urlMode !== mode) {
+        setMode(urlMode)
+      }
+      
+      if (isMounted) {
+        if (urlMode === 'register') {
+          await loadTodayReportForRegister()
+        } else if (urlMode === 'report' && !todayReport) {
+          // Chỉ load nếu chưa có dữ liệu
+          await loadTodayReport()
+        }
+      }
+    }
+    
+    initializeData()
+    
+    return () => {
+      isMounted = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Chỉ chạy 1 lần khi mount
 
-  // Đọc mode từ URL query params
+  // Xử lý thay đổi mode từ URL
   useEffect(() => {
     const urlMode = searchParams.get('mode') || 'register'
     if (urlMode !== mode) {
       setMode(urlMode)
-      if (urlMode === 'report') {
-        loadTodayReport(true)
+      setError('') // Clear error khi chuyển mode
+      
+      // Load dữ liệu tương ứng với mode mới
+      if (urlMode === 'register') {
+        loadTodayReportForRegister()
+      } else if (urlMode === 'report' && !todayReport) {
+        loadTodayReport()
       }
     }
-  }, [searchParams])
+  }, [searchParams]) // Chỉ phụ thuộc vào searchParams
 
   // Nếu điều hướng từ thông báo với ngày cụ thể, focus vào ngày đó
   useEffect(() => {
@@ -63,23 +128,42 @@ const DailyReportPage = () => {
     loadHistoryForMonth(historyYear, historyMonth)
   }, [historyYear, historyMonth])
 
-  // Load tasks khi chuyển mode
-  useEffect(() => {
-    if (mode === 'register') {
-      loadTasks()
-      // Reset form khi chuyển sang mode register
-      setSelectedTasks([])
-      setAdHocTasks([])
-      setTodayReport(null)
-    } else if (mode === 'report') {
-      // Luôn load lại báo cáo hôm nay khi chuyển sang mode report (force reload)
-      loadTodayReport(true)
-    }
-  }, [mode])
+  // TẮT AUTO-SAVE - Không tự động lưu nữa
+  // useEffect(() => {
+  //   if (mode === 'register' && (selectedTasks.length > 0 || adHocTasks.length > 0)) {
+  //     // Clear timeout cũ
+  //     if (autoSaveTimeout) {
+  //       clearTimeout(autoSaveTimeout)
+  //     }
+  //     
+  //     // Validate công việc phát sinh: nội dung không được để trống
+  //     const invalidAdHocTasks = adHocTasks.filter(task => task.content && !task.content.trim())
+  //     if (invalidAdHocTasks.length > 0) {
+  //       return // Không auto-save nếu có công việc phát sinh chưa nhập nội dung
+  //     }
+  //     
+  //     // Set timeout mới (debounce 2 giây)
+  //     const timeout = setTimeout(() => {
+  //       autoSaveSchedule()
+  //     }, 2000)
+  //     
+  //     setAutoSaveTimeout(timeout)
+  //     
+  //     return () => {
+  //       if (timeout) {
+  //         clearTimeout(timeout)
+  //       }
+  //     }
+  //   }
+  //   // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, [selectedTasks, adHocTasks, mode])
 
   const loadTasks = async () => {
     try {
-      setLoading(true)
+      // Chỉ set loading nếu chưa có tasks (tránh flicker)
+      if (allTasks.length === 0) {
+        setLoading(true)
+      }
       setError('')
       const user = getCurrentUser()
       if (!user) {
@@ -91,18 +175,19 @@ const DailyReportPage = () => {
       // API trả về List<TaskResponse>, không phải Page
       const tasksList = response.data?.result || []
       
-      // Ở mode register, chỉ load tasks chưa hoàn thành
-      if (mode === 'register') {
-        const incompleteTasks = Array.isArray(tasksList) 
-          ? tasksList.filter(task => task.status !== 'COMPLETED')
-          : []
-        setAllTasks(incompleteTasks)
-      } else {
-        // Ở mode report, không cần load tasks vì sẽ load từ báo cáo đã đăng ký
-        setAllTasks([])
-      }
+      // Chỉ load tasks chưa hoàn thành (cần cho mode register)
+      const incompleteTasks = Array.isArray(tasksList) 
+        ? tasksList.filter(task => task.status !== 'COMPLETED')
+        : []
+      setAllTasks(incompleteTasks)
     } catch (err) {
-      setError(err.response?.data?.message || 'Lỗi khi tải danh sách công việc')
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error loading tasks:', err)
+      }
+      // Không set error nếu đã có tasks (chỉ log)
+      if (allTasks.length === 0) {
+        setError(err.response?.data?.message || 'Lỗi khi tải danh sách công việc')
+      }
     } finally {
       setLoading(false)
     }
@@ -121,7 +206,9 @@ const DailyReportPage = () => {
           taskId: task.taskId,
           task: task,
           priority: 'MEDIUM',
-          comment: ''
+          comment: '',
+          startTime: '', // Thời gian bắt đầu (HH:mm)
+          endTime: '' // Thời gian kết thúc (HH:mm)
         }]
       }
     })
@@ -142,7 +229,10 @@ const DailyReportPage = () => {
       id: Date.now(),
       content: '',
       priority: 'MEDIUM',
-      comment: ''
+      comment: '',
+      selfScore: null,
+      startTime: '', // Thời gian bắt đầu (HH:mm)
+      endTime: '' // Thời gian kết thúc (HH:mm)
     }])
   }
 
@@ -156,8 +246,216 @@ const DailyReportPage = () => {
     ))
   }
 
+  // Hàm thêm công việc phát sinh tại thời gian cụ thể
+  const handleAddAdHocAtTime = (startTime, endTime) => {
+    setAdHocTasks(prev => [...prev, {
+      id: Date.now(),
+      content: '',
+      priority: 'MEDIUM',
+      comment: '',
+      selfScore: null,
+      startTime: startTime,
+      endTime: endTime
+    }])
+  }
+
+  // Hàm tạo snapshot dữ liệu để so sánh
+  const createDataSnapshot = (tasks, adHocTasks) => {
+    return JSON.stringify({
+      tasks: tasks.map(t => ({
+        taskId: t.taskId,
+        startTime: t.startTime || '',
+        endTime: t.endTime || ''
+      })).sort((a, b) => a.taskId - b.taskId),
+      adHocTasks: adHocTasks.map(ah => ({
+        id: ah.id,
+        content: ah.content || '',
+        startTime: ah.startTime || '',
+        endTime: ah.endTime || '',
+        selfScore: ah.selfScore !== null && ah.selfScore !== undefined ? ah.selfScore : null
+      })).sort((a, b) => {
+        // Sắp xếp theo id nếu có, nếu không thì theo content
+        if (a.id && b.id) return a.id - b.id
+        if (a.id) return -1
+        if (b.id) return 1
+        return (a.content || '').localeCompare(b.content || '')
+      })
+    })
+  }
+
+  // Kiểm tra xem có thay đổi so với dữ liệu ban đầu không
+  const hasChanges = () => {
+    if (!initialDataSnapshot) {
+      // Nếu chưa có snapshot, có nghĩa là chưa load dữ liệu hoặc đã clear
+      // Nếu có dữ liệu thì coi như có thay đổi (cần lưu)
+      return selectedTasks.length > 0 || adHocTasks.length > 0
+    }
+    
+    const currentSnapshot = createDataSnapshot(selectedTasks, adHocTasks)
+    return currentSnapshot !== initialDataSnapshot
+  }
+
+  // Load báo cáo hôm nay cho mode register (chỉ lấy báo cáo chưa gửi)
+  // preserveCurrentData: true = giữ dữ liệu hiện tại nếu đã có, false = luôn load từ server
+  const loadTodayReportForRegister = async (preserveCurrentData = false) => {
+    try {
+      // Chỉ set loading nếu không preserve (tránh flicker khi save)
+      if (!preserveCurrentData) {
+        setLoading(true)
+      }
+      setError('')
+      const today = new Date().toISOString().split('T')[0]
+      
+      const response = await dailyReportService.getMyDailyReportsByDateRange(today, today)
+      const reports = Array.isArray(response.data?.result) ? response.data.result : []
+      
+      // Lọc các báo cáo chưa gửi (chưa có comment)
+      const unsentReports = reports.filter(report => !isReportSent(report))
+      
+      // CHỈ load báo cáo chưa gửi (không load báo cáo đã gửi)
+      let reportToLoad = null
+      if (unsentReports.length > 0) {
+        // Có báo cáo chưa gửi: lấy báo cáo chưa gửi mới nhất
+        reportToLoad = unsentReports.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]
+      }
+      
+      if (reportToLoad) {
+        setTodayReport(reportToLoad)
+        setSelectedReportId(reportToLoad.reportId)
+        
+        // Luôn load dữ liệu từ server (không preserve khi gọi từ button hoặc useEffect)
+        if (!preserveCurrentData) {
+          let loadedTasks = []
+          let loadedAdHocTasks = []
+          
+          if (reportToLoad.selectedTasks && reportToLoad.selectedTasks.length > 0) {
+            loadedTasks = reportToLoad.selectedTasks.map(st => ({
+              id: Date.now() + Math.random(),
+              taskId: st.taskId,
+              task: { taskId: st.taskId, title: st.title, description: st.description },
+              priority: st.priority || 'MEDIUM',
+              comment: '', // Reset comment khi load vào mode register (chỉ giữ thời gian và task)
+              startTime: st.startTime || '',
+              endTime: st.endTime || ''
+            }))
+            setSelectedTasks(loadedTasks)
+          } else {
+            setSelectedTasks([])
+          }
+          
+          if (reportToLoad.adHocTasks && reportToLoad.adHocTasks.length > 0) {
+            loadedAdHocTasks = reportToLoad.adHocTasks.map(ah => ({
+              id: ah.id || Date.now() + Math.random(),
+              content: ah.content,
+              priority: ah.priority || 'MEDIUM',
+              comment: '', // Reset comment khi load vào mode register (chỉ giữ thời gian và selfScore)
+              selfScore: ah.selfScore !== null && ah.selfScore !== undefined ? ah.selfScore : null, // Giữ lại selfScore để có thể chỉnh sửa
+              startTime: ah.startTime || '',
+              endTime: ah.endTime || ''
+            }))
+            setAdHocTasks(loadedAdHocTasks)
+          } else {
+            setAdHocTasks([])
+          }
+          
+          // Lưu snapshot dữ liệu ban đầu sau khi load
+          setInitialDataSnapshot(createDataSnapshot(loadedTasks, loadedAdHocTasks))
+        }
+      } else {
+        // Không có báo cáo nào - chỉ reset nếu không preserve dữ liệu hiện tại
+        if (!preserveCurrentData) {
+          setTodayReport(null)
+          setSelectedReportId(null)
+          setSelectedTasks([])
+          setAdHocTasks([])
+          setInitialDataSnapshot(null) // Clear snapshot khi không có báo cáo
+        }
+      }
+    } catch (err) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error loading today report for register:', err)
+      }
+      setError(err.response?.data?.message || err.message || 'Lỗi khi tải báo cáo hôm nay')
+    } finally {
+      if (!preserveCurrentData) {
+        setLoading(false)
+      }
+    }
+  }
+
+  // Lưu lịch làm việc (thủ công - khi người dùng nhấn nút Lưu)
+  const handleSaveSchedule = async () => {
+    // Validate: phải có ít nhất 1 task được chọn hoặc 1 công việc phát sinh
+    if (selectedTasks.length === 0 && adHocTasks.length === 0) {
+      setError('Vui lòng chọn ít nhất một công việc hoặc thêm công việc phát sinh trước khi lưu.')
+      return
+    }
+
+    // Validate công việc phát sinh: nội dung không được để trống
+    const invalidAdHocTasks = adHocTasks.filter(task => !task.content.trim())
+    if (invalidAdHocTasks.length > 0) {
+      setError('Vui lòng nhập nội dung cho tất cả công việc phát sinh trước khi lưu.')
+      return
+    }
+
+    try {
+      setAutoSaving(true)
+      setError('')
+      
+      const today = new Date().toISOString().split('T')[0]
+      
+      const reportData = {
+        date: today,
+        selectedTaskIds: selectedTasks.map(st => st.taskId),
+        selectedTasksWithDetails: selectedTasks.map(st => ({
+          taskId: st.taskId,
+          priority: 'MEDIUM',
+          comment: '',
+          startTime: st.startTime ? (st.startTime.includes(':') ? st.startTime : `${st.startTime}:00`) : null,
+          endTime: st.endTime ? (st.endTime.includes(':') ? st.endTime : `${st.endTime}:00`) : null
+        })),
+        adHocTasks: adHocTasks.map(task => ({
+          content: task.content.trim(),
+          priority: 'MEDIUM',
+          comment: '',
+          selfScore: task.selfScore || null,
+          startTime: task.startTime ? (task.startTime.includes(':') ? task.startTime : `${String(task.startTime).padStart(2, '0')}:00`) : null,
+          endTime: task.endTime ? (task.endTime.includes(':') ? task.endTime : `${String(task.endTime).padStart(2, '0')}:00`) : null
+        }))
+      }
+      
+      // Nếu đã có báo cáo chưa gửi, xóa nó và tạo mới để đảm bảo chỉ có 1 báo cáo
+      if (todayReport && !isReportSent(todayReport)) {
+        try {
+          await dailyReportService.deleteDailyReport(todayReport.reportId)
+        } catch (err) {
+          if (process.env.NODE_ENV === 'development') {
+            console.error('Error deleting old report:', err)
+          }
+        }
+      }
+      
+      // Tạo báo cáo mới
+      await dailyReportService.createDailyReport(reportData)
+      
+      // Load lại để có reportId mới (preserve dữ liệu hiện tại)
+      await loadTodayReportForRegister(true)
+      
+      // Cập nhật snapshot sau khi lưu thành công
+      setInitialDataSnapshot(createDataSnapshot(selectedTasks, adHocTasks))
+      
+      setLastSaved(new Date())
+      setError('')
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Lỗi khi lưu lịch làm việc')
+    } finally {
+      setAutoSaving(false)
+    }
+  }
+
   // Load báo cáo hôm nay
-  const loadTodayReport = async (forceReload = false) => {
+  // Chỉ load khi thực sự cần (không tự động khi chuyển tab)
+  const loadTodayReport = async (forceReload = false, preserveCurrentData = false) => {
     try {
       // Chỉ set loading nếu force reload hoặc chưa có dữ liệu
       if (forceReload || !todayReport) {
@@ -170,39 +468,74 @@ const DailyReportPage = () => {
       const response = await dailyReportService.getMyDailyReportsByDateRange(today, today)
       const reports = Array.isArray(response.data?.result) ? response.data.result : []
       
-      // Lấy báo cáo mới nhất trong ngày
-      if (reports.length > 0) {
-        const latestReport = reports.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]
-        setTodayReport(latestReport)
+      // Sắp xếp báo cáo theo thời gian tạo (mới nhất trước)
+      const sortedReports = reports.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      setTodayReports(sortedReports)
+      
+      // Lọc các báo cáo chưa gửi (chưa có comment hoặc selfScore)
+      const unsentReports = sortedReports.filter(report => !isReportSent(report))
+      
+      // Load báo cáo: ưu tiên báo cáo chưa gửi, nhưng vẫn có thể load báo cáo đã gửi nếu được chọn
+      if (sortedReports.length > 0) {
+        let reportToLoad
         
-        // Load dữ liệu vào form
-        if (latestReport.selectedTasks) {
-          setSelectedTasks(latestReport.selectedTasks.map(st => ({
-            id: Date.now() + Math.random(),
-            taskId: st.taskId,
-            task: { taskId: st.taskId, title: st.title, description: st.description },
-            priority: st.priority || 'MEDIUM',
-            comment: st.comment || ''
-          })))
+        // Nếu có selectedReportId, tìm báo cáo đó trong tất cả báo cáo
+        if (selectedReportId) {
+          reportToLoad = sortedReports.find(r => r.reportId === selectedReportId)
+          if (!reportToLoad) {
+            // Nếu không tìm thấy báo cáo được chọn, load báo cáo mới nhất chưa gửi
+            reportToLoad = unsentReports.length > 0 ? unsentReports[0] : sortedReports[0]
+            setSelectedReportId(reportToLoad.reportId)
+          }
         } else {
-          setSelectedTasks([])
+          // Chưa chọn báo cáo nào - ưu tiên load báo cáo mới nhất chưa gửi
+          reportToLoad = unsentReports.length > 0 ? unsentReports[0] : sortedReports[0]
+          setSelectedReportId(reportToLoad.reportId)
         }
         
-        if (latestReport.adHocTasks) {
-          setAdHocTasks(latestReport.adHocTasks.map(ah => ({
-            id: ah.id || Date.now() + Math.random(),
-            content: ah.content,
-            priority: ah.priority || 'MEDIUM',
-            comment: ah.comment || '',
-            selfScore: ah.selfScore
-          })))
-        } else {
-          setAdHocTasks([])
+        // Load dữ liệu vào form (kể cả báo cáo đã gửi để xem)
+        setTodayReport(reportToLoad)
+        
+        // Chỉ load dữ liệu nếu không preserve hoặc chưa có dữ liệu
+        if (!preserveCurrentData || selectedTasks.length === 0) {
+          if (reportToLoad.selectedTasks) {
+            setSelectedTasks(reportToLoad.selectedTasks.map(st => ({
+              id: Date.now() + Math.random(),
+              taskId: st.taskId,
+              task: { taskId: st.taskId, title: st.title, description: st.description },
+              priority: st.priority || 'MEDIUM',
+              comment: st.comment || '',
+              startTime: st.startTime || '',
+              endTime: st.endTime || ''
+            })))
+          } else {
+            setSelectedTasks([])
+          }
+        }
+        
+        if (!preserveCurrentData || adHocTasks.length === 0) {
+          if (reportToLoad.adHocTasks) {
+            setAdHocTasks(reportToLoad.adHocTasks.map(ah => ({
+              id: ah.id || Date.now() + Math.random(),
+              content: ah.content,
+              priority: ah.priority || 'MEDIUM',
+              comment: ah.comment || '',
+              selfScore: ah.selfScore,
+              startTime: ah.startTime || '',
+              endTime: ah.endTime || ''
+            })))
+          } else {
+            setAdHocTasks([])
+          }
         }
       } else {
-        setTodayReport(null)
-        setSelectedTasks([])
-        setAdHocTasks([])
+        // Không có báo cáo nào - chỉ reset nếu không preserve
+        if (!preserveCurrentData) {
+          setTodayReport(null)
+          setSelectedReportId(null)
+          setSelectedTasks([])
+          setAdHocTasks([])
+        }
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Lỗi khi tải báo cáo hôm nay')
@@ -219,98 +552,198 @@ const DailyReportPage = () => {
       setError('Chưa có báo cáo đăng ký trong ngày. Vui lòng đăng ký lịch làm việc trước.')
       return
     }
+    
+    // Kiểm tra nếu có nhiều báo cáo chưa gửi thì phải chọn báo cáo trước khi gửi
+    const unsentReports = todayReports.filter(report => !isReportSent(report))
+    
+    if (unsentReports.length > 1 && !selectedReportId) {
+      setError('Vui lòng chọn báo cáo để gửi.')
+      return
+    }
+    
+    // Đảm bảo báo cáo đang chọn là báo cáo chưa gửi
+    if (todayReport && isReportSent(todayReport)) {
+      setError('Báo cáo này đã được gửi rồi. Vui lòng chọn báo cáo khác.')
+      return
+    }
+    
+    // Kiểm tra: báo cáo phải có ít nhất một công việc (thường hoặc phát sinh)
+    if (!selectedTasks || selectedTasks.length === 0) {
+      if (!adHocTasks || adHocTasks.length === 0) {
+        setError('Báo cáo phải có ít nhất một công việc để gửi.')
+        return
+      }
+    }
 
     try {
       setLoading(true)
       setError('')
       
-      const         updateData = {
-        taskComments: selectedTasks.map(st => ({
-          taskId: st.taskId,
-          comment: st.comment ? st.comment.trim() : ''
-        })),
-        adHocTaskComments: adHocTasks.filter(ah => ah.id && !isNaN(ah.id)).map(ah => ({
-          adHocTaskId: ah.id,
+      // Lọc taskComments - CHỈ gửi những task có trong báo cáo gốc (todayReport)
+      // Backend sẽ throw error nếu taskId không tồn tại trong báo cáo
+      const validTaskIds = todayReport?.selectedTasks?.map(st => st.taskId) || []
+      const taskComments = selectedTasks
+        .filter(st => {
+          // Đảm bảo taskId tồn tại, là số hợp lệ, VÀ có trong báo cáo gốc
+          const taskId = Number(st.taskId)
+          return st.taskId != null && !isNaN(taskId) && taskId > 0 && validTaskIds.includes(taskId)
+        })
+        .map(st => {
+          // Chuyển đổi taskId sang số để đảm bảo đúng kiểu Long
+          const taskId = Number(st.taskId)
+          return {
+            taskId: taskId,
+            comment: st.comment ? st.comment.trim() : ''
+          }
+        })
+      
+      // Lọc adHocTaskComments - CHỈ gửi những công việc phát sinh đã tồn tại trong DB (có id số)
+      // VÀ phải có trong báo cáo gốc (todayReport)
+      const validAdHocTaskIds = todayReport?.adHocTasks?.map(ah => ah.id).filter(id => id != null) || []
+      const adHocTaskComments = adHocTasks
+        .filter(ah => {
+          // Đảm bảo id tồn tại, là số hợp lệ, VÀ có trong báo cáo gốc
+          const id = Number(ah.id)
+          return ah.id != null && !isNaN(id) && id > 0 && validAdHocTaskIds.includes(id)
+        })
+        .map(ah => {
+          // Chuyển đổi id sang số để đảm bảo đúng kiểu Long
+          const adHocTaskId = Number(ah.id)
+          return {
+            adHocTaskId: adHocTaskId,
+            comment: ah.comment ? ah.comment.trim() : '',
+            selfScore: ah.selfScore !== null && ah.selfScore !== undefined ? Number(ah.selfScore) : null
+          }
+        })
+      
+      // Xử lý công việc phát sinh mới (không có trong báo cáo gốc)
+      // Những công việc này sẽ được thêm vào newAdHocTasks
+      const newAdHocTasks = adHocTasks
+        .filter(ah => {
+          // Công việc phát sinh mới: không có id hoặc id không có trong báo cáo gốc
+          if (!ah.id) return true // Không có id = mới
+          const id = Number(ah.id)
+          return isNaN(id) || id <= 0 || !validAdHocTaskIds.includes(id)
+        })
+        .map(ah => ({
+          content: ah.content ? ah.content.trim() : '',
+          priority: ah.priority || 'MEDIUM',
           comment: ah.comment ? ah.comment.trim() : '',
-          selfScore: ah.selfScore || null
-        })),
-        // Ở mode report, không cho thêm công việc phát sinh mới
-        newAdHocTasks: []
+          selfScore: ah.selfScore !== null && ah.selfScore !== undefined ? Number(ah.selfScore) : null,
+          startTime: ah.startTime ? (ah.startTime.includes(':') ? ah.startTime : `${String(ah.startTime).padStart(2, '0')}:00`) : null,
+          endTime: ah.endTime ? (ah.endTime.includes(':') ? ah.endTime : `${String(ah.endTime).padStart(2, '0')}:00`) : null
+        }))
+        .filter(ah => ah.content && ah.content.trim() !== '') // Chỉ lấy những công việc có nội dung
+      
+      // Debug: Log để kiểm tra (chỉ trong development)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Valid task IDs from report:', validTaskIds)
+        console.log('Valid adHoc task IDs from report:', validAdHocTaskIds)
+        console.log('Filtered taskComments:', taskComments)
+        console.log('Filtered adHocTaskComments:', adHocTaskComments)
+        console.log('New adHoc tasks:', newAdHocTasks)
+      }
+      
+      // Validate: BẮT BUỘC nhập comment cho TẤT CẢ công việc
+      const tasksWithoutComment = taskComments.filter(tc => !tc.comment || tc.comment.trim() === '')
+      const adHocTasksWithoutComment = adHocTaskComments.filter(ah => {
+        const hasComment = ah.comment && ah.comment.trim() !== ''
+        const hasScore = ah.selfScore !== null && ah.selfScore !== undefined
+        return !hasComment && !hasScore
+      })
+      
+      // Validate công việc phát sinh mới: cũng phải có comment hoặc selfScore
+      const newAdHocTasksWithoutComment = newAdHocTasks.filter(ah => {
+        const hasComment = ah.comment && ah.comment.trim() !== ''
+        const hasScore = ah.selfScore !== null && ah.selfScore !== undefined
+        return !hasComment && !hasScore
+      })
+      
+      if (tasksWithoutComment.length > 0 || adHocTasksWithoutComment.length > 0 || newAdHocTasksWithoutComment.length > 0) {
+        let errorMsg = 'Vui lòng nhập báo cáo kết quả cho tất cả công việc trước khi gửi:'
+        if (tasksWithoutComment.length > 0) {
+          errorMsg += `\n- ${tasksWithoutComment.length} công việc đã chọn chưa có báo cáo kết quả`
+        }
+        if (adHocTasksWithoutComment.length > 0) {
+          errorMsg += `\n- ${adHocTasksWithoutComment.length} công việc phát sinh chưa có báo cáo kết quả hoặc điểm tự chấm`
+        }
+        if (newAdHocTasksWithoutComment.length > 0) {
+          errorMsg += `\n- ${newAdHocTasksWithoutComment.length} công việc phát sinh mới chưa có báo cáo kết quả hoặc điểm tự chấm`
+        }
+        setError(errorMsg)
+        setLoading(false)
+        return
+      }
+      
+      // Chuẩn bị dữ liệu gửi - cho phép gửi cả khi không có công việc phát sinh
+      const updateData = {
+        taskComments: taskComments.length > 0 ? taskComments : null,
+        adHocTaskComments: adHocTaskComments.length > 0 ? adHocTaskComments : null,
+        // Cho phép thêm công việc phát sinh mới nếu có
+        newAdHocTasks: newAdHocTasks.length > 0 ? newAdHocTasks : []
+      }
+      
+      // Debug: Log dữ liệu trước khi gửi (chỉ trong development)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Sending update data:', JSON.stringify(updateData, null, 2))
+        console.log('Report ID:', todayReport.reportId)
       }
       
       await dailyReportService.updateDailyReportComments(todayReport.reportId, updateData)
       
       setSubmitted(true)
+      
+      // Dọn sạch dữ liệu ở cả 2 trang (đăng ký và gửi báo cáo) sau khi gửi thành công
+      setSelectedReportId(null)
+      setSelectedTasks([])
+      setAdHocTasks([])
+      setTodayReport(null)
+      setLastSaved(null) // Clear thông báo đã lưu
+      setInitialDataSnapshot(null) // Clear snapshot khi gửi báo cáo thành công
+      
       // Load lại báo cáo hôm nay để có dữ liệu mới nhất (force reload)
-      await loadTodayReport(true)
+      // Báo cáo vừa gửi sẽ tự động bị loại khỏi danh sách chưa gửi
+      if (mode === 'report') {
+        await loadTodayReport(true)
+      } else {
+        // Nếu đang ở mode register, load lại để clear form
+        await loadTodayReportForRegister()
+      }
+      
       setTimeout(() => {
         setSubmitted(false)
       }, 3000)
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Lỗi khi cập nhật báo cáo')
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error updating daily report comments:', err)
+        console.error('Error response:', err.response)
+      }
+      
+      // Hiển thị thông báo lỗi chi tiết từ backend
+      let errorMessage = 'Lỗi khi gửi báo cáo'
+      if (err.response?.data) {
+        if (err.response.data.message) {
+          errorMessage = err.response.data.message
+        } else if (err.response.data.error) {
+          errorMessage = err.response.data.error
+        } else if (typeof err.response.data === 'string') {
+          errorMessage = err.response.data
+        }
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+      
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
   }
 
+  // Hàm này không còn cần thiết vì đã có auto-save
+  // Nhưng vẫn giữ lại để tương thích với form submit
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
-    // Validate: phải có ít nhất 1 task được chọn hoặc 1 công việc phát sinh
-    if (selectedTasks.length === 0 && adHocTasks.length === 0) {
-      setError('Vui lòng chọn ít nhất một công việc hoặc thêm công việc phát sinh')
-      return
-    }
-
-    // Validate công việc phát sinh: nội dung không được để trống
-    const invalidAdHocTasks = adHocTasks.filter(task => !task.content.trim())
-    if (invalidAdHocTasks.length > 0) {
-      setError('Vui lòng nhập nội dung cho tất cả công việc phát sinh')
-      return
-    }
-
-    try {
-      setLoading(true)
-      setError('')
-      
-      // Tự động lấy ngày hiện tại
-      const today = new Date().toISOString().split('T')[0]
-      
-      const reportData = {
-        date: today,
-        selectedTaskIds: selectedTasks.map(st => st.taskId),
-        selectedTasksWithDetails: selectedTasks.map(st => ({
-          taskId: st.taskId,
-          priority: 'MEDIUM', // Mặc định MEDIUM vì không có field nhập ở mode register
-          comment: '' // Không có comment ở mode register
-        })),
-        adHocTasks: adHocTasks.map(task => ({
-          content: task.content.trim(),
-          priority: 'MEDIUM', // Mặc định MEDIUM vì không có field nhập ở mode register
-          comment: '', // Không có comment ở mode register
-          selfScore: task.selfScore || null
-        }))
-      }
-      
-      await dailyReportService.createDailyReport(reportData)
-      
-      setSubmitted(true)
-      // Load lại báo cáo hôm nay để có dữ liệu mới nhất (force reload)
-      await loadTodayReport(true)
-      
-      setTimeout(() => {
-        setSubmitted(false)
-        // Reset form chỉ khi ở mode register
-        if (mode === 'register') {
-          setSelectedTasks([])
-          setAdHocTasks([])
-        }
-      }, 3000)
-    } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Lỗi khi gửi báo cáo')
-    } finally {
-      setLoading(false)
-    }
+    // Không làm gì vì đã có auto-save
   }
 
   const loadHistoryForMonth = async (year, monthIndex) => {
@@ -339,7 +772,9 @@ const DailyReportPage = () => {
         setSelectedHistoryReports([])
       }
     } catch (err) {
-      console.error('Error loading history:', err)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error loading history:', err)
+      }
     } finally {
       setHistoryLoading(false)
     }
@@ -487,29 +922,28 @@ const DailyReportPage = () => {
             <button
               type="button"
               onClick={() => {
-                setMode('register')
                 setSearchParams({ mode: 'register' })
-                setSelectedTasks([])
-                setAdHocTasks([])
-                setError('')
+                setError('') // Clear error khi chuyển tab
               }}
-              className={`px-4 py-2 font-medium text-sm ${
+              className={`px-4 py-2 font-medium text-sm transition-colors ${
                 mode === 'register'
                   ? 'border-b-2 border-blue-600 text-blue-600'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              Đăng ký lịch làm việc (Buổi sáng)
+              Đăng ký lịch làm việc
             </button>
             <button
               type="button"
-              onClick={async () => {
-                setMode('report')
+              onClick={() => {
                 setSearchParams({ mode: 'report' })
-                // Đảm bảo load lại dữ liệu mới nhất (force reload)
-                await loadTodayReport(true)
+                setError('') // Clear error khi chuyển tab
+                // Load báo cáo nếu chưa có
+                if (!todayReport) {
+                  loadTodayReport()
+                }
               }}
-              className={`px-4 py-2 font-medium text-sm ${
+              className={`px-4 py-2 font-medium text-sm transition-colors ${
                 mode === 'report'
                   ? 'border-b-2 border-blue-600 text-blue-600'
                   : 'text-gray-500 hover:text-gray-700'
@@ -519,23 +953,12 @@ const DailyReportPage = () => {
             </button>
           </div>
           
-          {mode === 'register' && (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-sm">
-              <strong>Đăng ký lịch làm việc:</strong> Chọn các công việc dự kiến sẽ làm trong ngày. Comment và điểm tự chấm có thể để trống hoặc nhập sau.
-            </div>
-          )}
+          {/* Không hiển thị dropdown chọn báo cáo nữa vì chỉ có 1 báo cáo duy nhất */}
           
-          {mode === 'report' && (
-            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm">
-              {todayReport ? (
-                <div>
-                  <strong>Báo cáo cuối ngày:</strong> Cập nhật comment và điểm tự chấm cho các công việc đã đăng ký.
-                </div>
-              ) : (
-                <div>
-                  <strong>Chưa có báo cáo đăng ký:</strong> Vui lòng đăng ký lịch làm việc buổi sáng trước khi báo cáo cuối ngày.
-                </div>
-              )}
+          {/* Chỉ hiển thị form khi có báo cáo hoặc ở mode register */}
+          {mode === 'report' && !todayReport && (
+            <div className="text-center py-8 text-gray-500">
+              Không còn báo cáo nào cần gửi trong ngày hôm nay.
             </div>
           )}
 
@@ -547,7 +970,32 @@ const DailyReportPage = () => {
             </div>
           )}
 
-          <form onSubmit={mode === 'register' ? handleSubmit : handleUpdateComments} className="space-y-6">
+          {/* Thông báo khi lưu thành công ở mode register */}
+          {mode === 'register' && lastSaved && (
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <div className="flex items-center gap-2">
+                <svg className="h-4 w-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-sm text-green-800">
+                  Đã lưu lịch làm việc lúc {lastSaved.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {(mode === 'register' || (mode === 'report' && todayReport)) && (
+            <form onSubmit={mode === 'register' ? handleSubmit : handleUpdateComments} className="space-y-6">
+          {/* Timeline hiển thị thời gian làm việc - TRUNG TÂM CỦA BÁO CÁO */}
+          <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-4 border-2 border-blue-200">
+            <WorkTimeline
+              selectedTasks={selectedTasks}
+              adHocTasks={adHocTasks}
+              onAddAdHocAtTime={mode === 'register' ? handleAddAdHocAtTime : null}
+              mode={mode}
+            />
+          </div>
+          
           {/* Danh sách công việc có sẵn - chỉ hiển thị ở mode register */}
           {mode === 'register' && (
             <div>
@@ -613,46 +1061,119 @@ const DailyReportPage = () => {
           </div>
           )}
 
-          {/* Công việc đã chọn */}
-          {selectedTasks.length > 0 && (
+          {/* Công việc đã chọn - CHỈ HIỂN THỊ CÁC CÔNG VIỆC CÓ THỜI GIAN TRONG TIMELINE */}
+          {(() => {
+            // Ở mode report, chỉ hiển thị công việc có thời gian trong timeline
+            const tasksToShow = mode === 'report' 
+              ? selectedTasks.filter(task => task.startTime && task.endTime)
+              : selectedTasks
+            
+            return tasksToShow.length > 0 && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-3">
                 {mode === 'register' 
-                  ? `Công việc đã chọn (${selectedTasks.length} công việc)`
-                  : `Báo cáo về công việc đã chọn (${selectedTasks.length} công việc)`
+                  ? `Công việc đã chọn (${tasksToShow.length} công việc) - Sắp xếp theo thời gian`
+                  : `Báo cáo về công việc đã đăng ký trong timeline (${tasksToShow.length} công việc)`
                 }
               </label>
               <div className="space-y-4">
-                {selectedTasks.map((selectedTask, index) => (
-                  <div key={selectedTask.id} className="border border-gray-200 rounded-lg p-4 bg-blue-50">
+                {/* Sắp xếp các công việc theo thời gian bắt đầu (timeline) */}
+                {[...tasksToShow].sort((a, b) => {
+                  // Sắp xếp theo thời gian bắt đầu
+                  const timeA = a.startTime || '23:59'
+                  const timeB = b.startTime || '23:59'
+                  return timeA.localeCompare(timeB)
+                }).map((selectedTask, index) => (
+                  <div key={selectedTask.id} className="border border-gray-200 rounded-lg p-4 bg-blue-50 relative pl-6">
+                    {/* Timeline indicator */}
+                    {selectedTask.startTime && (
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 rounded-l-lg"></div>
+                    )}
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded">
+                            #{index + 1}
+                          </span>
+                          {(selectedTask.startTime || selectedTask.endTime) && mode === 'register' && (
+                            <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded">
+                              {selectedTask.startTime || '--'} - {selectedTask.endTime || '--'}
+                            </span>
+                          )}
+                        </div>
                         <h4 className="font-medium text-gray-900">{selectedTask.task.title}</h4>
                         {selectedTask.task.description && (
                           <p className="text-sm text-gray-600 mt-1">{selectedTask.task.description}</p>
                         )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveSelectedTask(selectedTask.taskId)}
-                        className="text-red-600 hover:text-red-700 p-1 ml-2"
-                      >
-                        <TrashIcon className="h-5 w-5" />
-                      </button>
+                      {/* Cho phép xóa ở mode register hoặc mode report (nếu báo cáo chưa gửi) */}
+                      {(mode === 'register' || (mode === 'report' && todayReport && !isReportSent(todayReport))) && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSelectedTask(selectedTask.taskId)}
+                          className="text-red-600 hover:text-red-700 p-1 ml-2"
+                        >
+                          <TrashIcon className="h-5 w-5" />
+                        </button>
+                      )}
                     </div>
 
                     <div className="space-y-3">
-                      {/* Mức độ - chỉ hiển thị ở mode report (nhưng bỏ theo yêu cầu) */}
-                      {/* Comment - chỉ hiển thị ở mode report */}
+                      {/* Thời gian làm việc - chỉ hiển thị ở mode register */}
+                      {mode === 'register' && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Thời gian bắt đầu
+                            </label>
+                            <input
+                              type="time"
+                              value={selectedTask.startTime || ''}
+                              onChange={(e) => handleSelectedTaskChange(selectedTask.taskId, 'startTime', e.target.value)}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Thời gian kết thúc
+                            </label>
+                            <input
+                              type="time"
+                              value={selectedTask.endTime || ''}
+                              onChange={(e) => handleSelectedTaskChange(selectedTask.taskId, 'endTime', e.target.value)}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Hiển thị thời gian ở mode report */}
+                      {mode === 'report' && (selectedTask.startTime || selectedTask.endTime) && (
+                        <div className="p-2 bg-gray-100 rounded-lg">
+                          <span className="text-sm text-gray-700">
+                            <strong>Thời gian:</strong> {
+                              selectedTask.startTime 
+                                ? new Date(`2000-01-01T${selectedTask.startTime}`).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                                : '--'
+                            } - {
+                              selectedTask.endTime 
+                                ? new Date(`2000-01-01T${selectedTask.endTime}`).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                                : '--'
+                            }
+                          </span>
+                        </div>
+                      )}
+                      
+                      {/* Báo cáo kết quả - chỉ hiển thị ở mode report */}
                       {mode === 'report' && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Comment
+                            Báo cáo kết quả <span className="text-red-500">*</span>
                           </label>
                           <textarea
                             value={selectedTask.comment || ''}
                             onChange={(e) => handleSelectedTaskChange(selectedTask.taskId, 'comment', e.target.value)}
-                            placeholder="Nhập comment về công việc này..."
+                            placeholder="Nhập báo cáo kết quả về công việc này (bắt buộc)..."
                             rows={3}
                             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                           />
@@ -663,15 +1184,26 @@ const DailyReportPage = () => {
                 ))}
               </div>
             </div>
-          )}
+            )
+          })()}
 
-          {/* Công việc phát sinh */}
-          <div>
+          {/* Công việc phát sinh - CHỈ HIỂN THỊ CÁC CÔNG VIỆC CÓ THỜI GIAN TRONG TIMELINE */}
+          {(() => {
+            // Ở mode report, chỉ hiển thị công việc phát sinh có thời gian trong timeline
+            const adHocToShow = mode === 'report' 
+              ? adHocTasks.filter(task => task.startTime && task.endTime)
+              : adHocTasks
+            
+            return (
+            <div>
             <div className="flex items-center justify-between mb-3">
               <label className="block text-sm font-medium text-gray-700">
-                Công việc phát sinh
+                {mode === 'register' 
+                  ? 'Công việc phát sinh'
+                  : 'Công việc phát sinh đã đăng ký trong timeline'
+                }
               </label>
-              {/* Chỉ hiển thị nút thêm ở mode register */}
+              {/* Chỉ cho phép thêm ở mode register */}
               {mode === 'register' && (
                 <button
                   type="button"
@@ -684,23 +1216,45 @@ const DailyReportPage = () => {
               )}
             </div>
 
-            {adHocTasks.length === 0 ? (
+            {adHocToShow.length === 0 ? (
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
                 <p className="text-gray-500">
                   {mode === 'register' 
-                    ? 'Chưa có công việc phát sinh nào. Nhấn "Thêm công việc" để thêm mới'
-                    : 'Chưa có công việc phát sinh nào được đăng ký'
+                    ? 'Chưa có công việc phát sinh nào. Nhấn "Thêm công việc" hoặc click vào timeline để thêm mới'
+                    : 'Chưa có công việc phát sinh nào được đăng ký trong timeline'
                   }
                 </p>
               </div>
             ) : (
               <div className="space-y-4">
-                {adHocTasks.map((adHocTask, index) => (
-                  <div key={adHocTask.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                {/* Sắp xếp các công việc phát sinh theo thời gian bắt đầu (timeline) */}
+                {[...adHocToShow].sort((a, b) => {
+                  // Sắp xếp theo thời gian bắt đầu
+                  const timeA = a.startTime || '23:59'
+                  const timeB = b.startTime || '23:59'
+                  return timeA.localeCompare(timeB)
+                }).map((adHocTask, index) => (
+                  <div key={adHocTask.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50 relative pl-6">
+                    {/* Timeline indicator */}
+                    {adHocTask.startTime && (
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-gray-500 rounded-l-lg"></div>
+                    )}
                     <div className="flex items-start justify-between mb-3">
-                      <h4 className="font-medium text-gray-900">Công việc phát sinh #{index + 1}</h4>
-                      {/* Chỉ cho phép xóa ở mode register */}
-                      {mode === 'register' && (
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium text-gray-600 bg-gray-100 px-2 py-1 rounded">
+                            Phát sinh #{index + 1}
+                          </span>
+                          {(adHocTask.startTime || adHocTask.endTime) && mode === 'register' && (
+                            <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded">
+                              {adHocTask.startTime || '--'} - {adHocTask.endTime || '--'}
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="font-medium text-gray-900">Công việc phát sinh #{index + 1}</h4>
+                      </div>
+                      {/* Cho phép xóa ở mode register hoặc mode report (nếu báo cáo chưa gửi) */}
+                      {(mode === 'register' || (mode === 'report' && todayReport && !isReportSent(todayReport))) && (
                         <button
                           type="button"
                           onClick={() => handleRemoveAdHocTask(adHocTask.id)}
@@ -712,6 +1266,51 @@ const DailyReportPage = () => {
                     </div>
 
                     <div className="space-y-3">
+                      {/* Thời gian làm việc - chỉ hiển thị ở mode register */}
+                      {mode === 'register' && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Thời gian bắt đầu
+                            </label>
+                            <input
+                              type="time"
+                              value={adHocTask.startTime || ''}
+                              onChange={(e) => handleAdHocTaskChange(adHocTask.id, 'startTime', e.target.value)}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Thời gian kết thúc
+                            </label>
+                            <input
+                              type="time"
+                              value={adHocTask.endTime || ''}
+                              onChange={(e) => handleAdHocTaskChange(adHocTask.id, 'endTime', e.target.value)}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Hiển thị thời gian ở mode report */}
+                      {mode === 'report' && (adHocTask.startTime || adHocTask.endTime) && (
+                        <div className="p-2 bg-gray-100 rounded-lg">
+                          <span className="text-sm text-gray-700">
+                            <strong>Thời gian:</strong> {
+                              adHocTask.startTime 
+                                ? new Date(`2000-01-01T${adHocTask.startTime}`).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                                : '--'
+                            } - {
+                              adHocTask.endTime 
+                                ? new Date(`2000-01-01T${adHocTask.endTime}`).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                                : '--'
+                            }
+                          </span>
+                        </div>
+                      )}
+                      
                       {/* Nội dung công việc */}
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -733,16 +1332,16 @@ const DailyReportPage = () => {
                         )}
                       </div>
 
-                      {/* Comment - chỉ hiển thị ở mode report */}
+                      {/* Báo cáo kết quả - chỉ hiển thị ở mode report */}
                       {mode === 'report' && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Comment
+                            Báo cáo kết quả <span className="text-red-500">*</span>
                           </label>
                           <textarea
                             value={adHocTask.comment || ''}
                             onChange={(e) => handleAdHocTaskChange(adHocTask.id, 'comment', e.target.value)}
-                            placeholder="Nhập comment về công việc này..."
+                            placeholder="Nhập báo cáo kết quả về công việc này (bắt buộc)..."
                             rows={3}
                             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                           />
@@ -772,21 +1371,58 @@ const DailyReportPage = () => {
               </div>
             )}
           </div>
+            )
+          })()}
 
-            {/* Nút gửi */}
-            <div className="flex justify-end pt-4 border-top border-gray-200">
-              <button
-                type="submit"
-                disabled={loading || (mode === 'register' && selectedTasks.length === 0 && adHocTasks.length === 0) || (mode === 'report' && !todayReport)}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading 
-                  ? (mode === 'register' ? 'Đang đăng ký...' : 'Đang cập nhật...') 
-                  : (mode === 'register' ? 'Đăng ký' : 'Cập nhật báo cáo')
-                }
-              </button>
-            </div>
+            {/* Nút Lưu - chỉ hiển thị ở mode register và khi có thay đổi */}
+            {mode === 'register' && hasChanges() && (
+              <div className="flex justify-end pt-4 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={handleSaveSchedule}
+                  disabled={autoSaving || (selectedTasks.length === 0 && adHocTasks.length === 0)}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {autoSaving ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>Đang lưu...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span>Lưu lịch làm việc</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* Nút gửi - chỉ hiển thị ở mode report */}
+            {mode === 'report' && (
+              <>
+                {todayReport && isReportSent(todayReport) ? (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-center mt-4">
+                    <p className="font-medium">Báo cáo này đã được gửi rồi.</p>
+                    <p className="text-sm mt-1">Bạn có thể xem lại thông tin báo cáo ở trên.</p>
+                  </div>
+                ) : (
+                  <div className="flex justify-end pt-4 border-top border-gray-200">
+                    <button
+                      type="submit"
+                      disabled={loading || !todayReport || isReportSent(todayReport)}
+                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Đang gửi...' : 'Gửi báo cáo'}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
           </form>
+          )}
         </div>
 
         {/* Lịch sử báo cáo (calendar) */}
@@ -931,7 +1567,7 @@ const DailyReportPage = () => {
                           </div>
                           {task.comment && (
                             <p className="text-[11px] text-gray-600 mt-1 italic">
-                              "{task.comment}"
+                              <strong>Báo cáo kết quả:</strong> "{task.comment}"
                             </p>
                           )}
                           {task.directorEvaluation?.comment && (
@@ -986,7 +1622,7 @@ const DailyReportPage = () => {
                           </div>
                           {task.comment && (
                             <p className="text-[11px] text-gray-600 mt-1 italic">
-                              "{task.comment}"
+                              <strong>Báo cáo kết quả:</strong> "{task.comment}"
                             </p>
                           )}
                           {task.directorEvaluation?.comment && (

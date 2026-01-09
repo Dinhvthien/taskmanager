@@ -59,9 +59,12 @@ const DirectorLayout = () => {
   }
 
   const reportsSubMenu = [
+    { name: 'Tổng quan', href: '/director/reports/statistics' },
     { name: 'Báo cáo của nhân viên', href: '/director/reports/employees' },
     { name: 'Báo cáo phòng ban', href: '/director/reports/departments' },
+    { name: 'Lịch làm việc của nhân viên', href: '/director/reports/schedules' },
     { name: 'Khác', href: '/director/reports/other' },
+
   ]
 
   // Kiểm tra xem có đang ở trong menu báo cáo không

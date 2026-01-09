@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import Logo from '../components/Logo'
+import logoImage from '../image.jpeg'
 
 const AuthLayout = () => {
   return (
@@ -10,13 +11,13 @@ const AuthLayout = () => {
           <div>
             <div className="mb-8">
               <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
-                  <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
-                </div>
+                <img 
+                  src={logoImage} 
+                  alt="Logo" 
+                  className="w-12 h-12 rounded-lg object-cover shadow-md"
+                />
                 <div>
-                  <h1 className="text-3xl font-bold text-white">IQL</h1>
+                  <h1 className="text-3xl font-bold text-white">iTask</h1>
                   <p className="text-sm text-blue-100">Hệ thống quản lý công việc</p>
                 </div>
               </div>

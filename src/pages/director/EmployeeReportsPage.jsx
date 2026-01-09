@@ -5,6 +5,7 @@ import { directorService } from '../../services/directorService'
 import dailyReportService, { directorEvaluationService } from '../../services/dailyReportService'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorMessage from '../../components/ErrorMessage'
+import WorkTimeline from '../../components/WorkTimeline'
 
 const EmployeeReportsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -15,6 +16,8 @@ const EmployeeReportsPage = () => {
   const [selectedUserId, setSelectedUserId] = useState(null)
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0])
   const [report, setReport] = useState(null)
+  const [reports, setReports] = useState([]) // Tất cả báo cáo trong ngày
+  const [selectedReportId, setSelectedReportId] = useState(null)
   const [error, setError] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
   const [evaluatingTaskId, setEvaluatingTaskId] = useState(null)
@@ -22,6 +25,20 @@ const EmployeeReportsPage = () => {
   const [taskEvaluation, setTaskEvaluation] = useState({ rating: '', comment: '' })
   const [adHocTaskEvaluation, setAdHocTaskEvaluation] = useState({ rating: '', comment: '' })
   const [savingEvaluation, setSavingEvaluation] = useState(false)
+
+  // Hàm kiểm tra báo cáo đã gửi chưa (dựa vào comment)
+  const isReportSent = (report) => {
+    if (!report) return false
+    
+    // Báo cáo được coi là đã gửi nếu có comment
+    const hasTaskComment = report.selectedTasks && report.selectedTasks.length > 0 && 
+      report.selectedTasks.some(task => task.comment && task.comment.trim() !== '')
+    
+    const hasAdHocComment = report.adHocTasks && report.adHocTasks.length > 0 && 
+      report.adHocTasks.some(ah => ah.comment && ah.comment.trim() !== '')
+    
+    return hasTaskComment || hasAdHocComment
+  }
 
   useEffect(() => {
     const userIdParam = searchParams.get('userId')
@@ -110,14 +127,38 @@ const EmployeeReportsPage = () => {
     try {
       setLoading(true)
       setError('')
-      // Lấy báo cáo của nhân viên được chọn
-      const response = await dailyReportService.getDailyReportByUserId(selectedUserId, reportDate)
-      setReport(response.data.result || null)
+      // Lấy TẤT CẢ báo cáo của nhân viên được chọn trong ngày
+      const response = await dailyReportService.getAllDailyReportsByUserId(selectedUserId, reportDate)
+      const allReports = response.data.result || []
+      setReports(allReports)
+      
+      // Sắp xếp theo thời gian tạo (mới nhất trước)
+      const sortedReports = [...allReports].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      
+      // Tự động chọn báo cáo mới nhất nếu có
+      if (sortedReports.length > 0) {
+        setSelectedReportId(sortedReports[0].reportId)
+        setReport(sortedReports[0])
+      } else {
+        setSelectedReportId(null)
+        setReport(null)
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Lỗi khi tải báo cáo')
       setReport(null)
+      setReports([])
+      setSelectedReportId(null)
     } finally {
       setLoading(false)
+    }
+  }
+  
+  // Xử lý khi chọn báo cáo khác
+  const handleReportChange = (reportId) => {
+    const selectedReport = reports.find(r => r.reportId === reportId)
+    if (selectedReport) {
+      setSelectedReportId(reportId)
+      setReport(selectedReport)
     }
   }
 
@@ -246,8 +287,8 @@ const EmployeeReportsPage = () => {
 
       {/* Chọn nhân viên và ngày */}
       <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="relative">
+        <div className="flex flex-col sm:flex-row gap-4 items-end">
+          <div className="relative flex-1 w-full">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Tìm kiếm và chọn nhân viên
             </label>
@@ -291,7 +332,7 @@ const EmployeeReportsPage = () => {
               </p>
             )}
           </div>
-          <div>
+          <div className="w-full sm:w-auto sm:min-w-[200px]">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Ngày báo cáo
             </label>
@@ -313,19 +354,95 @@ const EmployeeReportsPage = () => {
           <div className="bg-white rounded-lg shadow-md p-6">
             {loading ? (
               <LoadingSpinner />
-            ) : report ? (
+            ) : reports.length > 0 && report ? (
               <div className="space-y-4">
-                <h2 className="text-xl font-semibold text-gray-900">
-                  Báo cáo ngày {new Date(report.reportDate).toLocaleDateString('vi-VN')}
-                  {selectedUser && (
-                    <span className="text-lg font-normal text-gray-600 ml-2">
-                      - {selectedUser.fullName} {selectedUser.email ? `(${selectedUser.email})` : ''}
-                    </span>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    Báo cáo ngày {new Date(reportDate).toLocaleDateString('vi-VN')}
+                    {selectedUser && (
+                      <span className="text-lg font-normal text-gray-600 ml-2">
+                        - {selectedUser.fullName} {selectedUser.email ? `(${selectedUser.email})` : ''}
+                      </span>
+                    )}
+                  </h2>
+                  
+                  {/* Dropdown chọn báo cáo nếu có nhiều báo cáo */}
+                  {reports.length > 1 && (
+                    <div className="relative">
+                      <select
+                        value={selectedReportId || ''}
+                        onChange={(e) => handleReportChange(parseInt(e.target.value))}
+                        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-sm font-medium text-gray-700"
+                      >
+                        {reports.map((r, index) => {
+                          const timeStr = new Date(r.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                          const label = index === 0 
+                            ? `Báo cáo mới nhất - ${timeStr}` 
+                            : `Báo cáo #${reports.length - index} - ${timeStr}`
+                          return (
+                            <option key={r.reportId} value={r.reportId}>
+                              {label}
+                            </option>
+                          )
+                        })}
+                      </select>
+                    </div>
                   )}
-                </h2>
+                </div>
 
-              {/* Công việc đã chọn */}
-              {report.selectedTasks && report.selectedTasks.length > 0 && (
+                {/* Timeline hiển thị công việc chưa báo cáo */}
+                {(() => {
+                  // Tìm báo cáo chưa gửi (chưa có comment)
+                  const unsentReports = reports.filter(r => !isReportSent(r))
+                  
+                  if (unsentReports.length > 0) {
+                    // Lấy báo cáo chưa gửi mới nhất
+                    const latestUnsentReport = unsentReports.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]
+                    
+                    // Chuẩn bị dữ liệu cho timeline: chỉ lấy các công việc có thời gian
+                    const tasksForTimeline = (latestUnsentReport.selectedTasks || [])
+                      .filter(task => task.startTime && task.endTime)
+                      .map(task => ({
+                        id: Date.now() + Math.random(),
+                        taskId: task.taskId,
+                        task: { taskId: task.taskId, title: task.title, description: task.description },
+                        startTime: task.startTime || '',
+                        endTime: task.endTime || ''
+                      }))
+                    
+                    const adHocTasksForTimeline = (latestUnsentReport.adHocTasks || [])
+                      .filter(task => task.startTime && task.endTime)
+                      .map(task => ({
+                        id: task.id || Date.now() + Math.random(),
+                        content: task.content || '',
+                        startTime: task.startTime || '',
+                        endTime: task.endTime || ''
+                      }))
+                    
+                    // Chỉ hiển thị timeline nếu có công việc có thời gian
+                    if (tasksForTimeline.length > 0 || adHocTasksForTimeline.length > 0) {
+                      return (
+                        <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-4 border-2 border-yellow-300 mb-4">
+                          <div className="mb-3 p-3 bg-yellow-100 border border-yellow-300 rounded-lg">
+                            <p className="text-sm text-yellow-800 font-medium">
+                              ⚠️ <strong>Timeline công việc chưa báo cáo:</strong> Nhân viên đã đăng ký các công việc này nhưng chưa gửi báo cáo kết quả.
+                            </p>
+                          </div>
+                          <WorkTimeline
+                            selectedTasks={tasksForTimeline}
+                            adHocTasks={adHocTasksForTimeline}
+                            onAddAdHocAtTime={null}
+                            mode="report"
+                          />
+                        </div>
+                      )
+                    }
+                  }
+                  return null
+                })()}
+                
+                {/* Công việc đã chọn */}
+                {report.selectedTasks && report.selectedTasks.length > 0 && (
                 <div>
                   <h3 className="text-lg font-medium text-gray-800 mb-3">
                     Công việc đã báo cáo ({report.selectedTasks.length})
@@ -438,7 +555,14 @@ const EmployeeReportsPage = () => {
                       <div key={adHocTask.id} className="border border-gray-200 rounded-lg p-4 bg-blue-50">
                         <div className="flex justify-between items-start mb-2">
                           <div className="flex-1">
-                            <h4 className="font-medium text-gray-900">{adHocTask.content}</h4>
+                            <div className="flex items-center gap-3 mb-2">
+                              <h4 className="font-medium text-gray-900">{adHocTask.content}</h4>
+                              {adHocTask.selfScore !== null && adHocTask.selfScore !== undefined && (
+                                <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-semibold">
+                                  Điểm tự chấm: {adHocTask.selfScore.toFixed(1)}
+                                </span>
+                              )}
+                            </div>
                             {adHocTask.comment && (
                               <p className="text-sm text-gray-600 mt-2 italic">"{adHocTask.comment}"</p>
                             )}
@@ -526,12 +650,12 @@ const EmployeeReportsPage = () => {
                   </div>
                 </div>
               )}
-            </div>
-          ) : (
-            <p className="text-gray-500 text-center py-8">
-              Nhân viên chưa có báo cáo cho ngày này
-            </p>
-          )}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center py-8">
+                Nhân viên chưa có báo cáo cho ngày này
+              </p>
+            )}
           </div>
         )
       })()}

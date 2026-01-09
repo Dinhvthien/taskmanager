@@ -51,7 +51,7 @@ const CompanyTasksPage = () => {
   const [isDeletingRecurring, setIsDeletingRecurring] = useState(false)
   const [validationErrors, setValidationErrors] = useState({})
   const [departmentsLoaded, setDepartmentsLoaded] = useState(false)
-  const [activeTab, setActiveTab] = useState('recurring') // 'recurring', 'regular'
+  const [activeTab, setActiveTab] = useState('regular') // 'recurring', 'regular'
   const navigate = useNavigate()
   const location = useLocation()
   
@@ -79,7 +79,7 @@ const CompanyTasksPage = () => {
     endDate: '',
     departmentIds: [],
     userIds: [], // Danh sách nhân viên được chọn
-    // Số giờ thực tế dự kiến
+    // Thời gian định mức
     actualTimeUnit: '', // 'MINUTES', 'HOURS', 'DAYS', 'MONTHS'
     actualTimeValue: '', // Giá trị số
     // Recurring settings
@@ -618,7 +618,7 @@ const CompanyTasksPage = () => {
         userIds: formData.userIds.map(id => parseInt(id))
       }
       
-      // Xử lý số giờ thực tế dự kiến
+      // Xử lý thời gian định mức
       if (formData.actualTimeUnit && formData.actualTimeValue) {
         const value = parseInt(formData.actualTimeValue)
         switch (formData.actualTimeUnit) {
@@ -805,19 +805,6 @@ const CompanyTasksPage = () => {
         <nav className="flex space-x-8">
           <button
             onClick={() => {
-              setActiveTab('recurring')
-              setCurrentPage(0) // Reset về trang đầu khi chuyển tab
-            }}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'recurring'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Lặp lại
-          </button>
-          <button
-            onClick={() => {
               setActiveTab('regular')
               setCurrentPage(0) // Reset về trang đầu khi chuyển tab
             }}
@@ -828,6 +815,19 @@ const CompanyTasksPage = () => {
             }`}
           >
             Thường
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('recurring')
+              setCurrentPage(0) // Reset về trang đầu khi chuyển tab
+            }}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'recurring'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Lặp lại
           </button>
         </nav>
       </div>
@@ -1379,10 +1379,10 @@ const CompanyTasksPage = () => {
             </div>
           </div>
 
-          {/* Số giờ thực tế dự kiến */}
+          {/* Thời gian định mức */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-3">
-              Số giờ thực tế dự kiến (tùy chọn)
+              Thời gian định mức
             </label>
             <div className="grid grid-cols-2 gap-4">
               <div>

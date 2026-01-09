@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import { API_ENDPOINTS } from '../utils/constants'
+import { userService } from '../services/userService'
 
 const LoginPage = () => {
   const [formData, setFormData] = useState({
@@ -29,17 +30,36 @@ const LoginPage = () => {
       const response = await api.post(API_ENDPOINTS.AUTH.LOGIN, formData)
       const { result } = response.data
 
-      // Lưu token và user info
+      // Lưu token
       localStorage.setItem('token', result.token)
-      // Tạo user object từ LoginResponse
-      const user = {
-        userId: result.userId,
-        userName: result.userName,
-        fullName: result.fullName,
-        email: result.email,
-        roles: result.roles || []
+      
+      // Lấy đầy đủ thông tin user từ server (bao gồm avatarUrl)
+      try {
+        const userResponse = await userService.getCurrentUser()
+        const fullUser = userResponse.data.result
+        const user = {
+          userId: fullUser.userId,
+          userName: fullUser.userName,
+          fullName: fullUser.fullName,
+          email: fullUser.email,
+          avatarUrl: fullUser.avatarUrl, // Lưu avatarUrl từ server
+          roles: fullUser.roles || []
+        }
+        localStorage.setItem('user', JSON.stringify(user))
+      } catch (err) {
+        // Fallback: Nếu không lấy được user từ server, dùng thông tin từ login response
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Error loading user info:', err)
+        }
+        const user = {
+          userId: result.userId,
+          userName: result.userName,
+          fullName: result.fullName,
+          email: result.email,
+          roles: result.roles || []
+        }
+        localStorage.setItem('user', JSON.stringify(user))
       }
-      localStorage.setItem('user', JSON.stringify(user))
 
       // Redirect dựa trên role
       const roles = result.roles || []

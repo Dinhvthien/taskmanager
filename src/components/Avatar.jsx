@@ -1,8 +1,20 @@
 import { getCurrentUser, getAvatar } from '../utils/auth'
+import { userService } from '../services/userService'
 
 const Avatar = ({ size = 10, className = '' }) => {
   const currentUser = getCurrentUser()
-  const avatar = currentUser ? getAvatar(currentUser.userId) : null
+  
+  // Priority: avatarUrl from server > localStorage
+  let avatar = null
+  if (currentUser) {
+    if (currentUser.avatarUrl) {
+      // Use server avatar URL
+      avatar = userService.getAvatarUrl(currentUser.userId)
+    } else {
+      // Fallback to localStorage
+      avatar = getAvatar(currentUser.userId)
+    }
+  }
 
   const getInitials = () => {
     if (currentUser && currentUser.fullName) {

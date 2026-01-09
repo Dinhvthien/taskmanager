@@ -55,6 +55,13 @@ const dailyReportService = {
     })
   },
   
+  // Lấy TẤT CẢ báo cáo của một user cụ thể theo ngày (cho Director)
+  getAllDailyReportsByUserId: (userId, date) => {
+    return api.get(`/daily-reports/user/${userId}/all`, {
+      params: { date }
+    })
+  },
+  
   // Lấy danh sách nhân viên đã báo cáo trong ngày (cho Director)
   getEmployeesWithReportsByDate: (date) => {
     return api.get('/daily-reports/director/employees-summary', {
@@ -72,6 +79,13 @@ const dailyReportService = {
   // Lấy tất cả công việc phát sinh chưa được duyệt (cho Director)
   getPendingAdHocTasks: () => {
     return api.get('/daily-reports/director/ad-hoc-tasks')
+  },
+  
+  // Lấy thống kê chi tiết báo cáo nhân viên trong ngày (cho Director)
+  getEmployeesStatisticsByDate: (date) => {
+    return api.get('/daily-reports/director/employees-statistics', {
+      params: { date }
+    })
   }
 }
 

@@ -23,8 +23,10 @@ import DepartmentsPage from './pages/super-admin/DepartmentsPage'
 import ReportsPage from './pages/ReportsPage'
 import DailyReportPage from './pages/DailyReportPage'
 import EmployeeReportsPage from './pages/director/EmployeeReportsPage'
+import ScheduleRegistrationsPage from './pages/director/ScheduleRegistrationsPage'
 import DepartmentReportsPage from './pages/director/DepartmentReportsPage'
 import OtherReportsPage from './pages/director/OtherReportsPage'
+import ReportStatisticsPage from './pages/director/ReportStatisticsPage'
 import MyTasksPage from './pages/user/MyTasksPage'
 import TaskDetailPage from './pages/user/TaskDetailPage'
 import NotificationHistoryPage from './pages/NotificationHistoryPage'
@@ -82,6 +84,8 @@ function App() {
           <Route path="reports/employees" element={<EmployeeReportsPage />} />
           <Route path="reports/departments" element={<DepartmentReportsPage />} />
           <Route path="reports/other" element={<OtherReportsPage />} />
+          <Route path="reports/statistics" element={<ReportStatisticsPage />} />
+          <Route path="reports/schedules" element={<ScheduleRegistrationsPage />} />
           <Route path="reports" element={<Navigate to="/director/reports/employees" replace />} />
           <Route path="notifications" element={<NotificationHistoryPage />} />
           <Route path="profile" element={<ProfilePage />} />

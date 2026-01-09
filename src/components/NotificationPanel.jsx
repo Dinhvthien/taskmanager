@@ -10,7 +10,11 @@ const NotificationPanel = () => {
   const [notifications, setNotifications] = useState([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [currentPage, setCurrentPage] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalElements, setTotalElements] = useState(0)
   const panelRef = useRef(null)
+  const pageSize = 10 // Số thông báo mỗi trang
 
   // Xác định basePath theo role hiện tại
   const getBasePath = () => {
@@ -23,18 +27,21 @@ const NotificationPanel = () => {
 
   useEffect(() => {
     loadUnreadCount()
-    loadNotifications()
     
-    // Polling để cập nhật số lượng thông báo chưa đọc mỗi 5 giây (nhanh hơn để hiển thị real-time)
+    // Polling để cập nhật số lượng thông báo chưa đọc mỗi 5 giây
     const interval = setInterval(() => {
       loadUnreadCount()
-      if (isOpen) {
-        loadNotifications()
-      }
     }, 5000)
     
     return () => clearInterval(interval)
-  }, [isOpen])
+  }, [])
+
+  useEffect(() => {
+    if (isOpen) {
+      loadNotifications()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, currentPage])
 
   // Đóng panel khi click bên ngoài
   useEffect(() => {
@@ -58,18 +65,25 @@ const NotificationPanel = () => {
       const response = await notificationService.getUnreadCount()
       setUnreadCount(response.data.result || 0)
     } catch (err) {
-      console.error('Error loading unread count:', err)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error loading unread count:', err)
+      }
     }
   }
 
   const loadNotifications = async () => {
     try {
       setLoading(true)
-      const response = await notificationService.getNotifications(0, 20)
-      const notificationsList = response.data.result?.content || []
+      const response = await notificationService.getNotifications(currentPage, pageSize)
+      const result = response.data.result
+      const notificationsList = result?.content || []
       setNotifications(notificationsList)
+      setTotalPages(result?.totalPages || 1)
+      setTotalElements(result?.totalElements || 0)
     } catch (err) {
-      console.error('Error loading notifications:', err)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error loading notifications:', err)
+      }
     } finally {
       setLoading(false)
     }
@@ -78,7 +92,7 @@ const NotificationPanel = () => {
   const handleTogglePanel = () => {
     setIsOpen(!isOpen)
     if (!isOpen) {
-      loadNotifications()
+      setCurrentPage(0) // Reset về trang đầu khi mở panel
     }
   }
 
@@ -92,7 +106,9 @@ const NotificationPanel = () => {
       )
       setUnreadCount(prev => Math.max(0, prev - 1))
     } catch (err) {
-      console.error('Error marking notification as read:', err)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error marking notification as read:', err)
+      }
     }
   }
 
@@ -102,7 +118,9 @@ const NotificationPanel = () => {
       setNotifications(prev => prev.map(n => ({ ...n, read: true })))
       setUnreadCount(0)
     } catch (err) {
-      console.error('Error marking all as read:', err)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error marking all as read:', err)
+      }
     }
   }
 
@@ -115,7 +133,9 @@ const NotificationPanel = () => {
       }
       setNotifications(prev => prev.filter(n => n.id !== notificationId))
     } catch (err) {
-      console.error('Error deleting notification:', err)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error deleting notification:', err)
+      }
     }
   }
 
@@ -159,7 +179,9 @@ const NotificationPanel = () => {
       if (typeof notification.data === 'object') return notification.data
       return JSON.parse(notification.data)
     } catch (e) {
-      console.error('Error parsing notification data:', e)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error parsing notification data:', e)
+      }
       return {}
     }
   }
@@ -277,8 +299,9 @@ const NotificationPanel = () => {
                 <p className="text-sm sm:text-base">Không có thông báo nào</p>
               </div>
             ) : (
-              <div className="divide-y divide-gray-200">
-                {notifications.map((notification) => (
+              <>
+                <div className="divide-y divide-gray-200">
+                  {notifications.map((notification) => (
                   <div
                     key={notification.id}
                     className={`p-3 sm:p-4 hover:bg-gray-50 cursor-pointer transition-colors ${
@@ -321,8 +344,42 @@ const NotificationPanel = () => {
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+
+                {/* Phân trang */}
+                {totalPages > 1 && (
+                  <div className="border-t border-gray-200 p-3 bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs text-gray-600">
+                        Trang {currentPage + 1} / {totalPages}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setCurrentPage(prev => Math.max(0, prev - 1))
+                          }}
+                          disabled={currentPage === 0}
+                          className="px-3 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Trước
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setCurrentPage(prev => Math.min(totalPages - 1, prev + 1))
+                          }}
+                          disabled={currentPage >= totalPages - 1}
+                          className="px-3 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Sau
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
