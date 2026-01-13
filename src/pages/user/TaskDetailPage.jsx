@@ -4,6 +4,7 @@ import { taskService } from '../../services/taskService'
 import { departmentService } from '../../services/departmentService'
 import { userService } from '../../services/userService'
 import { attachmentService } from '../../services/attachmentService'
+import websocketService from '../../services/websocketService'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import EvaluationModal from '../../components/EvaluationModal'
 import TaskProgressBar from '../../components/TaskProgressBar'
@@ -11,6 +12,7 @@ import FileUpload from '../../components/FileUpload'
 import AttachmentList from '../../components/AttachmentList'
 import { TASK_STATUS, TASK_STATUS_LABELS, TASK_STATUS_COLORS, TASK_RATING_LABELS } from '../../utils/constants'
 import { PaperClipIcon } from '@heroicons/react/24/outline'
+import { formatDateTime } from '../../utils/dateFormat'
 
 // Component để upload file cho task
 const TaskFileUpload = ({ taskId, onUploadSuccess }) => {
@@ -482,6 +484,57 @@ const TaskDetailPage = ({ basePath }) => {
     loadUserRole()
     loadAllUsers()
     loadTaskAttachments()
+  }, [taskId])
+
+  // WebSocket subscription cho real-time comments
+  useEffect(() => {
+    if (!taskId) return
+
+    let subscriptionKey = null
+
+    const setupWebSocket = async () => {
+      try {
+        // Kết nối WebSocket nếu chưa kết nối
+        if (!websocketService.isConnectedToServer()) {
+          await websocketService.connect()
+        }
+
+        // Subscribe vào comment channel cho task này
+        const topic = `/topic/task/${taskId}/comments`
+        subscriptionKey = await websocketService.subscribe(topic, (newComment) => {
+          // Khi nhận được comment mới từ WebSocket, reload comments
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Received new comment via WebSocket:', newComment)
+          }
+          
+          // Reload comments để có comment mới
+          loadComments()
+          
+          // Nếu comment mới có attachments, load attachments sau một chút
+          if (newComment?.id) {
+            setTimeout(() => {
+              loadCommentAttachments(newComment.id).catch(err => {
+                // Ignore errors - comment có thể chưa có attachments
+                if (process.env.NODE_ENV === 'development') {
+                  console.debug(`No attachments for comment ${newComment.id}`)
+                }
+              })
+            }, 500)
+          }
+        })
+      } catch (error) {
+        console.error('Error setting up WebSocket subscription:', error)
+      }
+    }
+
+    setupWebSocket()
+
+    // Cleanup: unsubscribe khi component unmount hoặc taskId thay đổi
+    return () => {
+      if (subscriptionKey) {
+        websocketService.unsubscribe(subscriptionKey)
+      }
+    }
   }, [taskId])
 
   // Nhận focusCommentId từ navigation state (khi click từ notification)
@@ -997,7 +1050,7 @@ const TaskDetailPage = ({ basePath }) => {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A'
-    return new Date(dateString).toLocaleString('vi-VN')
+    return formatDateTime(dateString)
   }
 
   if (loading) return <LoadingSpinner />
@@ -1597,16 +1650,9 @@ const TaskDetailPage = ({ basePath }) => {
             {history.length > 0 ? (
               <div className="space-y-3 max-h-96 overflow-y-auto">
                 {history.map((item) => {
-                  const formatDate = (dateString) => {
+                  const formatDateLocal = (dateString) => {
                     if (!dateString) return ''
-                    const date = new Date(dateString)
-                    return date.toLocaleString('vi-VN', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })
+                    return formatDateTime(dateString)
                   }
 
                   const getActionLabel = (action) => {
@@ -1667,7 +1713,7 @@ const TaskDetailPage = ({ basePath }) => {
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        <span>{formatDate(item.createdAt)}</span>
+                        <span>{formatDateLocal(item.createdAt)}</span>
                       </div>
               </div>
                   )

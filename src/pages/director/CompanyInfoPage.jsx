@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { directorService } from '../../services/directorService'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import Modal from '../../components/Modal'
+import { formatDate } from '../../utils/dateFormat'
 
 const CompanyInfoPage = () => {
   const [director, setDirector] = useState(null)
@@ -53,10 +54,6 @@ const CompanyInfoPage = () => {
     }
   }
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A'
-    return new Date(dateString).toLocaleDateString('vi-VN')
-  }
 
   if (loading) return <LoadingSpinner />
 

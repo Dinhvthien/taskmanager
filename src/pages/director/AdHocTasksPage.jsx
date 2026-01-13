@@ -5,6 +5,7 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorMessage from '../../components/ErrorMessage'
 import { CheckIcon, XMarkIcon, PencilIcon } from '@heroicons/react/24/outline'
 import Modal from '../../components/Modal'
+import { formatDate } from '../../utils/dateFormat'
 
 const AdHocTasksPage = () => {
   const [loading, setLoading] = useState(true)
@@ -281,7 +282,7 @@ const AdHocTasksPage = () => {
                         </p>
                         <p className="flex items-center gap-2">
                           <span className="font-medium">Ngày báo cáo:</span>
-                          <span>{new Date(task.reportDate).toLocaleDateString('vi-VN')}</span>
+                          <span>{formatDate(task.reportDate)}</span>
                         </p>
                         {task.comment && (
                           <p className="flex items-start gap-2">
@@ -391,7 +392,7 @@ const AdHocTasksPage = () => {
             <div className="space-y-4">
               <div className="p-4 bg-gray-50 rounded-lg">
                 <p className="text-sm text-gray-600"><strong>Nhân viên:</strong> {editingTask.userFullName}</p>
-                <p className="text-sm text-gray-600"><strong>Ngày báo cáo:</strong> {new Date(editingTask.reportDate).toLocaleDateString('vi-VN')}</p>
+                <p className="text-sm text-gray-600"><strong>Ngày báo cáo:</strong> {formatDate(editingTask.reportDate)}</p>
               </div>
 
               <div>
@@ -480,7 +481,7 @@ const AdHocTasksPage = () => {
                 <p className="font-semibold text-gray-900 mb-2 text-base">{evaluatingTask.content}</p>
                 <div className="space-y-1 text-sm text-gray-600">
                   <p><strong>Nhân viên:</strong> {evaluatingTask.userFullName} ({evaluatingTask.userName})</p>
-                  <p><strong>Ngày báo cáo:</strong> {new Date(evaluatingTask.reportDate).toLocaleDateString('vi-VN')}</p>
+                  <p><strong>Ngày báo cáo:</strong> {formatDate(evaluatingTask.reportDate)}</p>
                   <p><strong>Điểm tự chấm:</strong> {evaluatingTask.selfScore ? `${evaluatingTask.selfScore} giờ` : 'Chưa có'}</p>
                   {evaluatingTask.comment && (
                     <p><strong>Comment:</strong> {evaluatingTask.comment}</p>

@@ -13,7 +13,8 @@ import {
   BellIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  UserCircleIcon
+  UserCircleIcon,
+  ChatBubbleLeftRightIcon
 } from '@heroicons/react/24/outline'
 import Logo from '../components/Logo'
 import NotificationPanel from '../components/NotificationPanel'
@@ -43,6 +44,7 @@ const SuperAdminLayout = () => {
     { name: 'Quản lý nhân viên', href: '/super-admin/users', icon: UsersIcon },
     { name: 'Quản lý Phòng ban', href: '/super-admin/departments', icon: BuildingOfficeIcon },
     { name: 'Báo cáo', href: '/super-admin/reports', icon: ChartBarIcon },
+    { name: 'Tin nhắn', href: '/super-admin/messaging', icon: ChatBubbleLeftRightIcon },
     { name: 'Lịch sử thông báo', href: '/super-admin/notifications', icon: BellIcon },
   ]
 

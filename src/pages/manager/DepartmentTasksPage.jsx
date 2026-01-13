@@ -8,6 +8,7 @@ import Modal from '../../components/Modal'
 import EditTaskModal from '../../components/EditTaskModal'
 import FileUpload from '../../components/FileUpload'
 import { TASK_STATUS_LABELS, TASK_STATUS_COLORS } from '../../utils/constants'
+import { formatDateTime } from '../../utils/dateFormat'
 
 const DepartmentTasksPage = () => {
   const [tasks, setTasks] = useState([])
@@ -35,6 +36,8 @@ const DepartmentTasksPage = () => {
   })
   const [taskFiles, setTaskFiles] = useState([]) // Files để đính kèm khi tạo task
   const [uploadingFiles, setUploadingFiles] = useState(false)
+  const [searchTitle, setSearchTitle] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all') // 'all' or status value
   const navigate = useNavigate()
   const location = useLocation()
   
@@ -80,7 +83,7 @@ const DepartmentTasksPage = () => {
       // Nếu đã load departments xong nhưng không có department nào, set loading = false
       setLoading(false)
     }
-  }, [selectedDepartment, departmentsLoaded])
+  }, [selectedDepartment, departmentsLoaded, searchTitle, statusFilter])
 
   const loadDepartments = async () => {
     try {
@@ -117,7 +120,9 @@ const DepartmentTasksPage = () => {
 
     try {
       setLoading(true)
-      const response = await taskService.getTasksByDepartmentId(selectedDepartment)
+      const searchTitleParam = searchTitle && searchTitle.trim() ? searchTitle.trim() : null
+      const statusParam = statusFilter !== 'all' ? statusFilter : null
+      const response = await taskService.getTasksByDepartmentId(selectedDepartment, searchTitleParam, statusParam)
       setTasks(response.data.result || [])
     } catch (err) {
       setError(err.response?.data?.message || 'Lỗi khi tải danh sách tasks')
@@ -332,6 +337,59 @@ const DepartmentTasksPage = () => {
 
   return (
     <div>
+      {/* Search and Filter Bar */}
+      <div className="mb-4 bg-white p-4 rounded-lg shadow border border-gray-200">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          {/* Search by title */}
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Tìm kiếm theo tên
+            </label>
+            <input
+              type="text"
+              value={searchTitle}
+              onChange={(e) => setSearchTitle(e.target.value)}
+              placeholder="Nhập tên công việc..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+            />
+          </div>
+          
+          {/* Filter by status */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Trạng thái
+            </label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+            >
+              <option value="all">Tất cả</option>
+              <option value="PENDING">Chờ nhận việc</option>
+              <option value="ACCEPTED">Đã nhận</option>
+              <option value="IN_PROGRESS">Đang làm</option>
+              <option value="WAITING">Đang chờ</option>
+              <option value="COMPLETED">Hoàn thành</option>
+            </select>
+          </div>
+        </div>
+        
+        {/* Clear filters button */}
+        {(searchTitle || statusFilter !== 'all') && (
+          <div className="mt-3">
+            <button
+              onClick={() => {
+                setSearchTitle('')
+                setStatusFilter('all')
+              }}
+              className="text-sm text-green-600 hover:text-green-800 font-medium"
+            >
+              Xóa bộ lọc
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 sm:mb-6 gap-3">
         <div>
         
@@ -389,15 +447,9 @@ const DepartmentTasksPage = () => {
                 const isOverdue = taskEndDate && taskEndDate < now && task.status !== 'COMPLETED'
                 const isNearDeadline = hoursUntilDeadline && hoursUntilDeadline > 0 && hoursUntilDeadline <= 6 && task.status !== 'COMPLETED'
 
-                const formatDate = (dateString) => {
+                const formatDateLocal = (dateString) => {
                   if (!dateString) return 'N/A'
-                  return new Date(dateString).toLocaleDateString('vi-VN', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })
+                  return formatDateTime(dateString)
                 }
 
                 return (
@@ -466,7 +518,7 @@ const DepartmentTasksPage = () => {
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                               </svg>
-                              <span>{formatDate(task.startDate)} - {formatDate(task.endDate)}</span>
+                              <span>{formatDateLocal(task.startDate)} - {formatDateLocal(task.endDate)}</span>
                             </div>
                           )}
 

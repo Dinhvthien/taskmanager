@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { XMarkIcon, CalendarIcon } from '@heroicons/react/24/outline'
 import { taskScoreService } from '../services/taskScoreService'
 import LoadingSpinner from './LoadingSpinner'
+import { formatDateTime, formatDate } from '../utils/dateFormat'
 
 const ScoreHistoryModal = ({ isOpen, onClose }) => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
@@ -56,16 +57,6 @@ const ScoreHistoryModal = ({ isOpen, onClose }) => {
     return 'text-red-600 font-semibold'
   }
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString('vi-VN', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
 
   if (!isOpen) return null
 
@@ -307,7 +298,7 @@ const ScoreHistoryModal = ({ isOpen, onClose }) => {
                                     {task.directorComment || '-'}
                                   </td>
                                   <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                                    {new Date(task.reportDate).toLocaleDateString('vi-VN')}
+                                    {formatDate(task.reportDate)}
                                   </td>
                                 </tr>
                               ))}

@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { BellIcon, XMarkIcon, ChevronDownIcon, ChevronUpIcon, UserIcon, BuildingOfficeIcon } from '@heroicons/react/24/outline'
 import notificationService from '../services/notificationService'
 import dailyReportService from '../services/dailyReportService'
+import { directorService } from '../services/directorService'
+import websocketService from '../services/websocketService'
+import { getCurrentUser } from '../utils/auth'
+import { formatDate } from '../utils/dateFormat'
 
 const DirectorNotificationPanel = () => {
   const navigate = useNavigate()
@@ -20,18 +24,105 @@ const DirectorNotificationPanel = () => {
   const [totalPages, setTotalPages] = useState(1)
   const [totalElements, setTotalElements] = useState(0)
   const panelRef = useRef(null)
+  const isOpenRef = useRef(isOpen)
+  const subscriptionKeyRef = useRef(null) // Lưu subscription key để cleanup
   const today = new Date().toISOString().split('T')[0]
   const pageSize = 10 // Số thông báo mỗi trang
+
+  // Cập nhật ref khi isOpen thay đổi
+  useEffect(() => {
+    isOpenRef.current = isOpen
+  }, [isOpen])
 
   useEffect(() => {
     loadUnreadCount()
     
-    // Polling để cập nhật số lượng thông báo chưa đọc
+    // WebSocket subscription cho real-time notifications
+    const setupWebSocket = async () => {
+      try {
+        // Unsubscribe subscription cũ nếu có (tránh duplicate khi component re-mount)
+        if (subscriptionKeyRef.current) {
+          websocketService.unsubscribe(subscriptionKeyRef.current)
+          subscriptionKeyRef.current = null
+        }
+
+        // Load director từ API để lấy directorId
+        let directorId = null
+        
+        // Thử lấy từ user object trước
+        const user = getCurrentUser()
+        if (user && user.directorId) {
+          directorId = user.directorId
+        } else {
+          // Nếu không có trong user object, gọi API để lấy
+          try {
+            const response = await directorService.getMyDirector()
+            const director = response.data.result
+            if (director && director.directorId) {
+              directorId = director.directorId
+            }
+          } catch (err) {
+            // Chỉ log lỗi nếu không phải 404 (not found) - có thể user chưa có director
+            if (err.response?.status !== 404 && process.env.NODE_ENV === 'development') {
+              console.error('Error loading director for WebSocket:', err)
+            }
+            return
+          }
+        }
+
+        if (!directorId) {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('No directorId found, cannot subscribe to notifications')
+          }
+          return
+        }
+
+        // Director subscribe vào director channel
+        const topic = `/topic/director/${directorId}/notifications`
+
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Subscribing to director notifications:', topic)
+        }
+
+        // Kết nối WebSocket nếu chưa kết nối
+        if (!websocketService.isConnectedToServer()) {
+          await websocketService.connect()
+        }
+
+        // Subscribe vào notification channel
+        subscriptionKeyRef.current = await websocketService.subscribe(topic, (notification) => {
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Received new notification via WebSocket:', notification)
+          }
+          
+          // Cập nhật unread count
+          setUnreadCount(prev => prev + 1)
+          
+          // Nếu panel đang mở, reload notifications để hiển thị thông báo mới
+          if (isOpenRef.current) {
+            loadNotifications()
+          }
+        })
+      } catch (error) {
+        console.error('Error setting up WebSocket subscription for notifications:', error)
+      }
+    }
+
+    setupWebSocket()
+
+    // Fallback: Polling để cập nhật số lượng thông báo chưa đọc mỗi 60 giây (giảm tần suất vì đã có WebSocket)
     const interval = setInterval(() => {
       loadUnreadCount()
-    }, 30000)
+    }, 60000) // Tăng lên 60 giây vì đã có WebSocket real-time
     
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      if (subscriptionKeyRef.current) {
+        websocketService.unsubscribe(subscriptionKeyRef.current)
+        subscriptionKeyRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -205,7 +296,7 @@ const DirectorNotificationPanel = () => {
     if (minutes < 60) return `${minutes} phút trước`
     if (hours < 24) return `${hours} giờ trước`
     if (days < 7) return `${days} ngày trước`
-    return date.toLocaleDateString('vi-VN')
+    return formatDate(date)
   }
 
   const getNotificationIcon = (type) => {
@@ -219,7 +310,10 @@ const DirectorNotificationPanel = () => {
       case 'DAILY_REPORT_EVALUATED':
         return '📊'
       case 'DAILY_REPORT_CREATED':
+      case 'DAILY_REPORT_SENT':
         return '📝'
+      case 'DEPARTMENT_DAILY_REPORT_SENT':
+        return '🏢'
       case 'COMMENT_REPLY':
         return '💬'
       case 'COMMENT_MENTION':
@@ -245,10 +339,52 @@ const DirectorNotificationPanel = () => {
   const handleNavigateToDetail = (notification) => {
     const data = parseNotificationData(notification)
     
-    // Xử lý navigation cho DAILY_REPORT_CREATED
-    if (notification.type === 'DAILY_REPORT_CREATED') {
+    // Debug log
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Notification clicked:', {
+        type: notification.type,
+        title: notification.title,
+        data: data
+      })
+    }
+    
+    // Xử lý navigation cho DEPARTMENT_DAILY_REPORT_SENT (báo cáo phòng ban mới)
+    if (notification.type === 'DEPARTMENT_DAILY_REPORT_SENT' ||
+        (notification.title && notification.title.includes('Báo cáo phòng ban'))) {
+      const departmentId = data.departmentId
+      const reportDate = data.reportDate || today
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Navigating to department reports:', { departmentId, reportDate })
+      }
+      
+      if (departmentId) {
+        navigate(`/director/reports/departments?departmentId=${departmentId}&date=${reportDate}`)
+      } else {
+        // Nếu không có departmentId, điều hướng đến trang danh sách báo cáo phòng ban
+        navigate('/director/reports/departments')
+      }
+      
+      // Đánh dấu đã đọc nếu chưa đọc
+      if (!notification.read) {
+        handleMarkAsRead(notification.id)
+      }
+      
+      setIsOpen(false)
+      return
+    }
+    
+    // Xử lý navigation cho DAILY_REPORT_SENT (báo cáo cuối ngày mới của nhân viên)
+    // Kiểm tra cả type và title để đảm bảo bắt được notification
+    if (notification.type === 'DAILY_REPORT_SENT' || 
+        notification.type === 'DAILY_REPORT_CREATED' ||
+        (notification.title && notification.title.includes('Báo cáo cuối ngày'))) {
       const userId = data.userId
       const reportDate = data.reportDate || today
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Navigating to employee reports:', { userId, reportDate })
+      }
       
       if (userId) {
         navigate(`/director/reports/employees?userId=${userId}&date=${reportDate}`)
@@ -293,7 +429,7 @@ const DirectorNotificationPanel = () => {
   const reportedDepartments = departmentReports.filter(dept => dept.hasReported)
 
   return (
-    <div className="relative" ref={panelRef}>
+    <div className="relative z-[99999]" ref={panelRef}>
       {/* Notification Bell Button */}
       <button
         onClick={handleTogglePanel}
@@ -309,7 +445,7 @@ const DirectorNotificationPanel = () => {
 
       {/* Notification Panel */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-96 max-w-sm bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-[calc(100vh-8rem)] sm:max-h-[600px] flex flex-col">
+        <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-96 max-w-sm bg-white rounded-lg shadow-xl border border-gray-200 z-[99999] max-h-[calc(100vh-8rem)] sm:max-h-[600px] flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between p-3 sm:p-4 border-b border-gray-200">
             <h3 className="text-base sm:text-lg font-semibold text-gray-900">

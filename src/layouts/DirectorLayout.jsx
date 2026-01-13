@@ -14,7 +14,8 @@ import {
   ChevronRightIcon,
   BellIcon,
   UserCircleIcon,
-  ChevronLeftIcon
+  ChevronLeftIcon,
+  ChatBubbleLeftRightIcon
 } from '@heroicons/react/24/outline'
 import Logo from '../components/Logo'
 import DirectorNotificationPanel from '../components/DirectorNotificationPanel'
@@ -29,6 +30,7 @@ const DirectorLayout = () => {
   })
   const [reportsMenuOpen, setReportsMenuOpen] = useState(false)
   const [tasksMenuOpen, setTasksMenuOpen] = useState(false)
+  const [usersMenuOpen, setUsersMenuOpen] = useState(false)
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
@@ -41,8 +43,8 @@ const DirectorLayout = () => {
 
   const navigation = [
     { name: 'Dashboard', href: '/director/dashboard', icon: HomeIcon },
-    { name: 'Quản lý nhân viên', href: '/director/users', icon: UsersIcon },
     { name: 'Quản lý phòng ban', href: '/director/departments', icon: BuildingOfficeIcon },
+    { name: 'Tin nhắn', href: '/director/messaging', icon: ChatBubbleLeftRightIcon },
   ]
 
   const tasksSubMenu = [
@@ -51,6 +53,7 @@ const DirectorLayout = () => {
     { name: 'Hoàn thành', href: '/director/tasks/hoanthanh' },
     { name: 'Đang chờ', href: '/director/tasks/choduyet' },
     { name: 'Công việc phát sinh', href: '/director/tasks/ad-hoc' },
+    { name: 'Công việc đã bị xóa', href: '/director/tasks/deleted' },
   ]
   
   const handleCreateTask = () => {
@@ -58,10 +61,22 @@ const DirectorLayout = () => {
     setSidebarOpen(false)
   }
 
+  const usersSubMenu = [
+    { name: 'Danh sách nhân viên', href: '/director/users' },
+    { name: 'Danh sách nhân viên bị xóa', href: '/director/users/deleted' },
+  ]
+
+  const handleCreateUser = () => {
+    navigate('/director/users?create=true')
+    setSidebarOpen(false)
+  }
+
   const reportsSubMenu = [
     { name: 'Tổng quan', href: '/director/reports/statistics' },
     { name: 'Báo cáo của nhân viên', href: '/director/reports/employees' },
+    { name: 'Xếp hạng nhân viên', href: '/director/reports/ranking' },
     { name: 'Báo cáo phòng ban', href: '/director/reports/departments' },
+    { name: 'Xếp hạng phòng ban', href: '/director/reports/department-ranking' },
     { name: 'Lịch làm việc của nhân viên', href: '/director/reports/schedules' },
     { name: 'Khác', href: '/director/reports/other' },
 
@@ -72,6 +87,9 @@ const DirectorLayout = () => {
   
   // Kiểm tra xem có đang ở trong menu công việc không
   const isTasksActive = location.pathname.startsWith('/director/tasks') || location.pathname.startsWith('/director/department-tasks')
+
+  // Kiểm tra xem có đang ở trong menu quản lý nhân viên không
+  const isUsersActive = location.pathname.startsWith('/director/users')
 
   // Tự động mở submenu khi đang ở trang báo cáo
   useEffect(() => {
@@ -86,6 +104,13 @@ const DirectorLayout = () => {
       setTasksMenuOpen(true)
     }
   }, [isTasksActive])
+
+  // Tự động mở submenu khi đang ở trang quản lý nhân viên
+  useEffect(() => {
+    if (isUsersActive) {
+      setUsersMenuOpen(true)
+    }
+  }, [isUsersActive])
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -161,6 +186,71 @@ const DirectorLayout = () => {
                 </Link>
               )
             })}
+
+            {/* Quản lý nhân viên với submenu */}
+            <div>
+              <button
+                onClick={() => setUsersMenuOpen(!usersMenuOpen)}
+                className={`
+                  w-full flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'} px-3 sm:px-4 py-2 sm:py-3 rounded-lg transition-colors text-sm sm:text-base
+                  ${isUsersActive 
+                    ? 'bg-blue-50 text-blue-600 font-medium' 
+                    : 'text-gray-700 hover:bg-gray-50'
+                  }
+                `}
+                title={sidebarCollapsed ? 'Quản lý nhân viên' : ''}
+              >
+                <div className="flex items-center space-x-2 sm:space-x-3">
+                  <UsersIcon className={`h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0 ${isUsersActive ? 'text-blue-600' : 'text-gray-400'}`} />
+                  {!sidebarCollapsed && <span>Quản lý nhân viên</span>}
+                </div>
+                {!sidebarCollapsed && (
+                  usersMenuOpen ? (
+                    <ChevronDownIcon className="h-3 w-3 sm:h-4 sm:w-4" />
+                  ) : (
+                    <ChevronRightIcon className="h-3 w-3 sm:h-4 sm:w-4" />
+                  )
+                )}
+              </button>
+
+              {/* Submenu */}
+              {usersMenuOpen && !sidebarCollapsed && (
+                <div className="ml-2 sm:ml-4 mt-1 space-y-1">
+                  {/* Nút Tạo nhân viên */}
+                  <button
+                    onClick={handleCreateUser}
+                    className="w-full flex items-center space-x-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg transition-colors text-xs sm:text-sm text-blue-600 bg-blue-50 hover:bg-blue-100 font-medium"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span>Tạo nhân viên</span>
+                  </button>
+                  
+                  <div className="border-t border-gray-200 my-1"></div>
+                  
+                  {usersSubMenu.map((subItem) => {
+                    const subActive = location.pathname === subItem.href
+                    return (
+                      <Link
+                        key={subItem.name}
+                        to={subItem.href}
+                        className={`
+                          block px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg transition-colors text-xs sm:text-sm
+                          ${subActive 
+                            ? 'bg-blue-100 text-blue-700 font-medium' 
+                            : 'text-gray-600 hover:bg-gray-50'
+                          }
+                        `}
+                        onClick={() => setSidebarOpen(false)}
+                      >
+                        {subItem.name}
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* Công việc với submenu */}
             <div>

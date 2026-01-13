@@ -159,7 +159,7 @@ const WorkTimeline = ({
             className="flex items-center gap-2 px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
           >
             <PlusIcon className="h-4 w-4" />
-            Thêm việc phát sinh tại thời gian hiện tại
+            Thêm việc phát sinh
           </button>
         )}
       </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useLocation, useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams, useNavigate } from 'react-router-dom'
 import { taskService } from '../services/taskService'
 import dailyReportService from '../services/dailyReportService'
 import { getCurrentUser } from '../utils/auth'
@@ -7,9 +7,13 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import ErrorMessage from '../components/ErrorMessage'
 import WorkTimeline from '../components/WorkTimeline'
 import { PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { formatDate, formatTime, formatDateTime, formatTimeString } from '../utils/dateFormat'
+import DateInput from '../components/DateInput'
+import TimeInput24h from '../components/TimeInput24h'
 
 const DailyReportPage = () => {
   const location = useLocation()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const urlMode = searchParams.get('mode') || 'register'
   const [mode, setMode] = useState(urlMode) // 'register' hoặc 'report'
@@ -45,20 +49,14 @@ const DailyReportPage = () => {
     return hasTaskComment || hasAdHocComment
   }
 
-  // Lịch sử báo cáo (dùng chung cho nhân viên và manager)
   const today = new Date()
-  const [historyMonth, setHistoryMonth] = useState(today.getMonth()) // 0-11
-  const [historyYear, setHistoryYear] = useState(today.getFullYear())
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [myReports, setMyReports] = useState([])
-  const [selectedHistoryDate, setSelectedHistoryDate] = useState(today.toISOString().split('T')[0])
-  const [selectedHistoryReport, setSelectedHistoryReport] = useState(null)
-  const [selectedHistoryReports, setSelectedHistoryReports] = useState([]) // Tất cả báo cáo của ngày được chọn
   const [autoSaving, setAutoSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState(null)
   const [autoSaveTimeout, setAutoSaveTimeout] = useState(null)
   // Lưu trữ snapshot dữ liệu ban đầu để so sánh
   const [initialDataSnapshot, setInitialDataSnapshot] = useState(null)
+  // Ngày được chọn để đăng ký lịch làm việc (mặc định là hôm nay)
+  const [selectedDate, setSelectedDate] = useState(today.toISOString().split('T')[0])
 
   // Tối ưu: Gộp tất cả logic load dữ liệu ban đầu vào một useEffect duy nhất
   useEffect(() => {
@@ -78,7 +76,7 @@ const DailyReportPage = () => {
       
       if (isMounted) {
         if (urlMode === 'register') {
-          await loadTodayReportForRegister()
+          await loadTodayReportForRegister(false, selectedDate)
         } else if (urlMode === 'report' && !todayReport) {
           // Chỉ load nếu chưa có dữ liệu
           await loadTodayReport()
@@ -103,30 +101,13 @@ const DailyReportPage = () => {
       
       // Load dữ liệu tương ứng với mode mới
       if (urlMode === 'register') {
-        loadTodayReportForRegister()
+        loadTodayReportForRegister(false, selectedDate)
       } else if (urlMode === 'report' && !todayReport) {
         loadTodayReport()
       }
     }
   }, [searchParams]) // Chỉ phụ thuộc vào searchParams
 
-  // Nếu điều hướng từ thông báo với ngày cụ thể, focus vào ngày đó
-  useEffect(() => {
-    const focusDate = location.state?.focusReportDate
-    if (focusDate) {
-      const d = new Date(focusDate)
-      if (!isNaN(d.getTime())) {
-        setHistoryYear(d.getFullYear())
-        setHistoryMonth(d.getMonth())
-        setSelectedHistoryDate(focusDate)
-      }
-    }
-  }, [location.state])
-
-  // Load lịch sử báo cáo theo tháng
-  useEffect(() => {
-    loadHistoryForMonth(historyYear, historyMonth)
-  }, [historyYear, historyMonth])
 
   // TẮT AUTO-SAVE - Không tự động lưu nữa
   // useEffect(() => {
@@ -295,18 +276,18 @@ const DailyReportPage = () => {
     return currentSnapshot !== initialDataSnapshot
   }
 
-  // Load báo cáo hôm nay cho mode register (chỉ lấy báo cáo chưa gửi)
+  // Load báo cáo cho mode register (chỉ lấy báo cáo chưa gửi)
   // preserveCurrentData: true = giữ dữ liệu hiện tại nếu đã có, false = luôn load từ server
-  const loadTodayReportForRegister = async (preserveCurrentData = false) => {
+  const loadTodayReportForRegister = async (preserveCurrentData = false, date = null) => {
     try {
       // Chỉ set loading nếu không preserve (tránh flicker khi save)
       if (!preserveCurrentData) {
         setLoading(true)
       }
       setError('')
-      const today = new Date().toISOString().split('T')[0]
+      const targetDate = date || selectedDate
       
-      const response = await dailyReportService.getMyDailyReportsByDateRange(today, today)
+      const response = await dailyReportService.getMyDailyReportsByDateRange(targetDate, targetDate)
       const reports = Array.isArray(response.data?.result) ? response.data.result : []
       
       // Lọc các báo cáo chưa gửi (chưa có comment)
@@ -402,10 +383,8 @@ const DailyReportPage = () => {
       setAutoSaving(true)
       setError('')
       
-      const today = new Date().toISOString().split('T')[0]
-      
       const reportData = {
-        date: today,
+        date: selectedDate,
         selectedTaskIds: selectedTasks.map(st => st.taskId),
         selectedTasksWithDetails: selectedTasks.map(st => ({
           taskId: st.taskId,
@@ -453,7 +432,7 @@ const DailyReportPage = () => {
     }
   }
 
-  // Load báo cáo hôm nay
+  // Load báo cáo cho ngày được chọn (mode report chỉ dùng hôm nay)
   // Chỉ load khi thực sự cần (không tự động khi chuyển tab)
   const loadTodayReport = async (forceReload = false, preserveCurrentData = false) => {
     try {
@@ -462,6 +441,7 @@ const DailyReportPage = () => {
         setLoading(true)
       }
       setError('')
+      // Mode report luôn dùng ngày hôm nay
       const today = new Date().toISOString().split('T')[0]
       
       // Thêm timestamp để tránh cache
@@ -746,93 +726,6 @@ const DailyReportPage = () => {
     // Không làm gì vì đã có auto-save
   }
 
-  const loadHistoryForMonth = async (year, monthIndex) => {
-    try {
-      setHistoryLoading(true)
-      const startDate = new Date(year, monthIndex, 1)
-      const endDate = new Date(year, monthIndex + 1, 0)
-      const startStr = startDate.toISOString().split('T')[0]
-      const endStr = endDate.toISOString().split('T')[0]
-
-      const response = await dailyReportService.getMyDailyReportsByDateRange(startStr, endStr)
-      const reports = Array.isArray(response.data?.result) ? response.data.result : []
-      setMyReports(reports)
-
-      // Cập nhật report được chọn nếu vẫn nằm trong tháng này
-      if (selectedHistoryDate) {
-        const reportsForDate = reports.filter(r => r.reportDate === selectedHistoryDate)
-        setSelectedHistoryReports(reportsForDate)
-        // Lấy báo cáo mới nhất (sắp xếp theo createdAt DESC)
-        const latestReport = reportsForDate.length > 0 
-          ? reportsForDate.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]
-          : null
-        setSelectedHistoryReport(latestReport)
-      } else {
-        setSelectedHistoryReport(null)
-        setSelectedHistoryReports([])
-      }
-    } catch (err) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Error loading history:', err)
-      }
-    } finally {
-      setHistoryLoading(false)
-    }
-  }
-
-  const handleChangeMonth = (direction) => {
-    setHistoryMonth(prev => {
-      let newMonth = prev + direction
-      let newYear = historyYear
-      if (newMonth < 0) {
-        newMonth = 11
-        newYear = historyYear - 1
-      } else if (newMonth > 11) {
-        newMonth = 0
-        newYear = historyYear + 1
-      }
-      setHistoryYear(newYear)
-      return newMonth
-    })
-  }
-
-  const handleSelectHistoryDate = (dateStr) => {
-    setSelectedHistoryDate(dateStr)
-    const reportsForDate = myReports.filter(r => r.reportDate === dateStr)
-    setSelectedHistoryReports(reportsForDate)
-    // Lấy báo cáo mới nhất (sắp xếp theo createdAt DESC)
-    const latestReport = reportsForDate.length > 0 
-      ? reportsForDate.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]
-      : null
-    setSelectedHistoryReport(latestReport)
-  }
-
-  const getMonthLabel = (monthIndex, year) => {
-    const formatter = new Intl.DateTimeFormat('vi-VN', { month: 'long', year: 'numeric' })
-    return formatter.format(new Date(year, monthIndex, 1))
-  }
-
-  const buildCalendarDays = (year, monthIndex) => {
-    const firstDay = new Date(year, monthIndex, 1)
-    const lastDay = new Date(year, monthIndex + 1, 0)
-    const daysInMonth = lastDay.getDate()
-    // JS: 0=CN, 1=Thứ 2,... -> chuyển về 1..7 với 1=Thứ 2
-    let startWeekDay = firstDay.getDay() // 0-6
-    if (startWeekDay === 0) startWeekDay = 7
-
-    const cells = []
-    // Ô trống trước ngày 1
-    for (let i = 1; i < startWeekDay; i++) {
-      cells.push(null)
-    }
-    // Các ngày trong tháng
-    for (let day = 1; day <= daysInMonth; day++) {
-      const date = new Date(year, monthIndex, day)
-      const dateStr = date.toISOString().split('T')[0]
-      cells.push(dateStr)
-    }
-    return cells
-  }
 
   const getStatusLabel = (status) => {
     const statusMap = {
@@ -900,109 +793,128 @@ const DailyReportPage = () => {
     return <LoadingSpinner />
   }
 
-  // Tạo map để đếm số lượng báo cáo mỗi ngày
-  const reportsByDate = myReports.reduce((acc, report) => {
-    const date = report.reportDate
-    if (!acc[date]) {
-      acc[date] = []
-    }
-    acc[date].push(report)
-    return acc
-  }, {})
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div>
         {/* Form gửi báo cáo */}
-        <div className="lg:col-span-2 bg-white rounded-lg shadow-md p-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Báo cáo công việc</h1>
-          
-          {/* Tabs để chuyển đổi giữa 2 mode */}
-          <div className="flex border-b border-gray-200 mb-6">
-            <button
-              type="button"
-              onClick={() => {
-                setSearchParams({ mode: 'register' })
-                setError('') // Clear error khi chuyển tab
-              }}
-              className={`px-4 py-2 font-medium text-sm transition-colors ${
-                mode === 'register'
-                  ? 'border-b-2 border-blue-600 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Đăng ký lịch làm việc
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSearchParams({ mode: 'report' })
-                setError('') // Clear error khi chuyển tab
-                // Load báo cáo nếu chưa có
-                if (!todayReport) {
-                  loadTodayReport()
-                }
-              }}
-              className={`px-4 py-2 font-medium text-sm transition-colors ${
-                mode === 'report'
-                  ? 'border-b-2 border-blue-600 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Báo cáo cuối ngày
-            </button>
+        <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200 px-6 py-4">
+            <h1 className="text-2xl font-bold text-gray-900">
+              {mode === 'register' ? 'Đăng ký lịch làm việc' : 'Báo cáo cuối ngày'}
+            </h1>
           </div>
+
+          <div className="p-6">
           
           {/* Không hiển thị dropdown chọn báo cáo nữa vì chỉ có 1 báo cáo duy nhất */}
           
-          {/* Chỉ hiển thị form khi có báo cáo hoặc ở mode register */}
-          {mode === 'report' && !todayReport && (
-            <div className="text-center py-8 text-gray-500">
-              Không còn báo cáo nào cần gửi trong ngày hôm nay.
-            </div>
-          )}
-
-          {error && <ErrorMessage message={error} />}
-
-          {submitted && (
-            <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800">
-              Báo cáo đã được gửi thành công!
-            </div>
-          )}
-
-          {/* Thông báo khi lưu thành công ở mode register */}
-          {mode === 'register' && lastSaved && (
-            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-              <div className="flex items-center gap-2">
-                <svg className="h-4 w-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                <span className="text-sm text-green-800">
-                  Đã lưu lịch làm việc lúc {lastSaved.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                </span>
+            {/* Chọn ngày đăng ký - chỉ hiển thị ở mode register */}
+            {mode === 'register' && (
+              <div className="mb-6 p-5 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl shadow-sm">
+                <label className="block text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Chọn ngày đăng ký lịch làm việc
+                </label>
+                <div className="flex items-center gap-3">
+                  <DateInput
+                    value={selectedDate}
+                    min={today.toISOString().split('T')[0]} // Chỉ cho phép chọn từ hôm nay trở đi
+                    onChange={async (newDate) => {
+                      setSelectedDate(newDate)
+                      setError('')
+                      // Load lại dữ liệu cho ngày mới
+                      await loadTodayReportForRegister(false, newDate)
+                    }}
+                    className="px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all"
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
+            
+            {/* Chỉ hiển thị form khi có báo cáo hoặc ở mode register */}
+            {mode === 'report' && !todayReport && (
+              <div className="text-center py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-300">
+                <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="text-lg font-medium text-gray-600">Không còn báo cáo nào cần gửi trong ngày hôm nay.</p>
+                <p className="text-sm text-gray-500 mt-2">Vui lòng đăng ký lịch làm việc trước khi báo cáo.</p>
+              </div>
+            )}
+
+            {error && (
+              <div className="mb-6">
+                <ErrorMessage message={error} />
+              </div>
+            )}
+
+            {submitted && (
+              <div className="mb-6 p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-xl shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0 w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-green-800">Báo cáo đã được gửi thành công!</p>
+                    <p className="text-sm text-green-700 mt-1">Bạn có thể xem lại báo cáo trong lịch sử bên cạnh.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Thông báo khi lưu thành công ở mode register */}
+            {mode === 'register' && lastSaved && (
+              <div className="mb-6 p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-xl shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-green-800">Đã lưu lịch làm việc</p>
+                    <p className="text-sm text-green-700">Lúc {formatTime(lastSaved)}</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
           {(mode === 'register' || (mode === 'report' && todayReport)) && (
             <form onSubmit={mode === 'register' ? handleSubmit : handleUpdateComments} className="space-y-6">
-          {/* Timeline hiển thị thời gian làm việc - TRUNG TÂM CỦA BÁO CÁO */}
-          <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-4 border-2 border-blue-200">
-            <WorkTimeline
-              selectedTasks={selectedTasks}
-              adHocTasks={adHocTasks}
-              onAddAdHocAtTime={mode === 'register' ? handleAddAdHocAtTime : null}
-              mode={mode}
-            />
-          </div>
+            {/* Timeline hiển thị thời gian làm việc - TRUNG TÂM CỦA BÁO CÁO */}
+            <div className="mb-6">
+              <div className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 rounded-xl p-6 border-2 border-blue-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <h2 className="text-lg font-bold text-gray-900">Timeline công việc</h2>
+                </div>
+                <WorkTimeline
+                  selectedTasks={selectedTasks}
+                  adHocTasks={adHocTasks}
+                  onAddAdHocAtTime={mode === 'register' ? handleAddAdHocAtTime : null}
+                  mode={mode}
+                />
+              </div>
+            </div>
           
-          {/* Danh sách công việc có sẵn - chỉ hiển thị ở mode register */}
-          {mode === 'register' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Công việc chưa hoàn thành ({allTasks.length} công việc)
-              </label>
-            <div className="border border-gray-200 rounded-lg p-4 max-h-96 overflow-y-auto">
+            {/* Danh sách công việc có sẵn - chỉ hiển thị ở mode register */}
+            {mode === 'register' && (
+              <div className="mb-6">
+                <label className="block text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  Công việc chưa hoàn thành ({allTasks.length} công việc)
+                </label>
+            <div className="border-2 border-gray-200 rounded-xl p-5 max-h-96 overflow-y-auto bg-gray-50 shadow-sm">
               {allTasks.length === 0 ? (
                 <p className="text-gray-500 text-center py-4">Không có công việc nào</p>
               ) : (
@@ -1012,10 +924,10 @@ const DailyReportPage = () => {
                     return (
                       <div 
                         key={task.taskId} 
-                        className={`flex items-start p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                        className={`flex items-start p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 ${
                           isSelected 
-                            ? 'bg-blue-50 border-blue-300' 
-                            : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                            ? 'bg-blue-100 border-blue-400 shadow-md transform scale-[1.02]' 
+                            : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-sm'
                         }`}
                         onClick={() => handleTaskToggle(task)}
                       >
@@ -1042,7 +954,7 @@ const DailyReportPage = () => {
                             )}
                             {task.endDate && (
                               <span className="text-xs text-gray-500">
-                                Hạn: {new Date(task.endDate).toLocaleDateString('vi-VN')}
+                                Hạn: {formatDate(task.endDate)}
                               </span>
                             )}
                           </div>
@@ -1084,10 +996,10 @@ const DailyReportPage = () => {
                   const timeB = b.startTime || '23:59'
                   return timeA.localeCompare(timeB)
                 }).map((selectedTask, index) => (
-                  <div key={selectedTask.id} className="border border-gray-200 rounded-lg p-4 bg-blue-50 relative pl-6">
+                  <div key={selectedTask.id} className="border-2 border-blue-200 rounded-xl p-5 bg-gradient-to-r from-blue-50 to-indigo-50 relative pl-8 shadow-sm hover:shadow-md transition-shadow">
                     {/* Timeline indicator */}
                     {selectedTask.startTime && (
-                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 rounded-l-lg"></div>
+                      <div className="absolute left-0 top-0 bottom-0 w-2 bg-gradient-to-b from-blue-500 to-indigo-600 rounded-l-xl"></div>
                     )}
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex-1">
@@ -1126,22 +1038,20 @@ const DailyReportPage = () => {
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                               Thời gian bắt đầu
                             </label>
-                            <input
-                              type="time"
+                            <TimeInput24h
                               value={selectedTask.startTime || ''}
-                              onChange={(e) => handleSelectedTaskChange(selectedTask.taskId, 'startTime', e.target.value)}
-                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              onChange={(value) => handleSelectedTaskChange(selectedTask.taskId, 'startTime', value)}
+                              className="w-full"
                             />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                               Thời gian kết thúc
                             </label>
-                            <input
-                              type="time"
+                            <TimeInput24h
                               value={selectedTask.endTime || ''}
-                              onChange={(e) => handleSelectedTaskChange(selectedTask.taskId, 'endTime', e.target.value)}
-                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              onChange={(value) => handleSelectedTaskChange(selectedTask.taskId, 'endTime', value)}
+                              className="w-full"
                             />
                           </div>
                         </div>
@@ -1153,11 +1063,11 @@ const DailyReportPage = () => {
                           <span className="text-sm text-gray-700">
                             <strong>Thời gian:</strong> {
                               selectedTask.startTime 
-                                ? new Date(`2000-01-01T${selectedTask.startTime}`).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                                ? formatTimeString(selectedTask.startTime)
                                 : '--'
                             } - {
                               selectedTask.endTime 
-                                ? new Date(`2000-01-01T${selectedTask.endTime}`).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                                ? formatTimeString(selectedTask.endTime)
                                 : '--'
                             }
                           </span>
@@ -1170,12 +1080,12 @@ const DailyReportPage = () => {
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Báo cáo kết quả <span className="text-red-500">*</span>
                           </label>
-                          <textarea
+                            <textarea
                             value={selectedTask.comment || ''}
                             onChange={(e) => handleSelectedTaskChange(selectedTask.taskId, 'comment', e.target.value)}
                             placeholder="Nhập báo cáo kết quả về công việc này (bắt buộc)..."
                             rows={3}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                            className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all resize-none"
                           />
                         </div>
                       )}
@@ -1208,17 +1118,20 @@ const DailyReportPage = () => {
                 <button
                   type="button"
                   onClick={handleAddAdHocTask}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105"
                 >
-                  <PlusIcon className="h-4 w-4" />
+                  <PlusIcon className="h-5 w-5" />
                   Thêm công việc
                 </button>
               )}
             </div>
 
             {adHocToShow.length === 0 ? (
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <p className="text-gray-500">
+              <div className="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center bg-gray-50">
+                <svg className="w-12 h-12 text-gray-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                <p className="text-gray-600 font-medium">
                   {mode === 'register' 
                     ? 'Chưa có công việc phát sinh nào. Nhấn "Thêm công việc" hoặc click vào timeline để thêm mới'
                     : 'Chưa có công việc phát sinh nào được đăng ký trong timeline'
@@ -1234,10 +1147,10 @@ const DailyReportPage = () => {
                   const timeB = b.startTime || '23:59'
                   return timeA.localeCompare(timeB)
                 }).map((adHocTask, index) => (
-                  <div key={adHocTask.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50 relative pl-6">
+                  <div key={adHocTask.id} className="border-2 border-gray-200 rounded-xl p-5 bg-gradient-to-r from-gray-50 to-slate-50 relative pl-8 shadow-sm hover:shadow-md transition-shadow">
                     {/* Timeline indicator */}
                     {adHocTask.startTime && (
-                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-gray-500 rounded-l-lg"></div>
+                      <div className="absolute left-0 top-0 bottom-0 w-2 bg-gradient-to-b from-gray-400 to-gray-600 rounded-l-xl"></div>
                     )}
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex-1">
@@ -1273,22 +1186,20 @@ const DailyReportPage = () => {
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                               Thời gian bắt đầu
                             </label>
-                            <input
-                              type="time"
+                            <TimeInput24h
                               value={adHocTask.startTime || ''}
-                              onChange={(e) => handleAdHocTaskChange(adHocTask.id, 'startTime', e.target.value)}
-                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              onChange={(value) => handleAdHocTaskChange(adHocTask.id, 'startTime', value)}
+                              className="w-full"
                             />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                               Thời gian kết thúc
                             </label>
-                            <input
-                              type="time"
+                            <TimeInput24h
                               value={adHocTask.endTime || ''}
-                              onChange={(e) => handleAdHocTaskChange(adHocTask.id, 'endTime', e.target.value)}
-                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              onChange={(value) => handleAdHocTaskChange(adHocTask.id, 'endTime', value)}
+                              className="w-full"
                             />
                           </div>
                         </div>
@@ -1300,11 +1211,11 @@ const DailyReportPage = () => {
                           <span className="text-sm text-gray-700">
                             <strong>Thời gian:</strong> {
                               adHocTask.startTime 
-                                ? new Date(`2000-01-01T${adHocTask.startTime}`).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                                ? formatTimeString(adHocTask.startTime)
                                 : '--'
                             } - {
                               adHocTask.endTime 
-                                ? new Date(`2000-01-01T${adHocTask.endTime}`).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                                ? formatTimeString(adHocTask.endTime)
                                 : '--'
                             }
                           </span>
@@ -1322,7 +1233,7 @@ const DailyReportPage = () => {
                             value={adHocTask.content}
                             onChange={(e) => handleAdHocTaskChange(adHocTask.id, 'content', e.target.value)}
                             placeholder="Nhập nội dung công việc phát sinh..."
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all"
                             required
                           />
                         ) : (
@@ -1343,7 +1254,7 @@ const DailyReportPage = () => {
                             onChange={(e) => handleAdHocTaskChange(adHocTask.id, 'comment', e.target.value)}
                             placeholder="Nhập báo cáo kết quả về công việc này (bắt buộc)..."
                             rows={3}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                            className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all resize-none"
                           />
                         </div>
                       )}
@@ -1351,7 +1262,7 @@ const DailyReportPage = () => {
                       {/* Điểm tự chấm */}
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Điểm tự chấm (giờ) {mode === 'report' && <span className="text-red-500">*</span>}
+                          Thời gian định mức {mode === 'report' && <span className="text-red-500">*</span>}
                         </label>
                         <input
                           type="number"
@@ -1360,7 +1271,7 @@ const DailyReportPage = () => {
                           value={adHocTask.selfScore || ''}
                           onChange={(e) => handleAdHocTaskChange(adHocTask.id, 'selfScore', e.target.value ? parseFloat(e.target.value) : null)}
                           placeholder="Ví dụ: 2.5 (tương đương 2.5 giờ = 2.5 điểm)"
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all"
                           required={mode === 'report'}
                         />
                         <p className="text-xs text-gray-500 mt-1">Điểm tính bằng giờ (ví dụ: 2.5 giờ = 2.5 điểm)</p>
@@ -1376,16 +1287,16 @@ const DailyReportPage = () => {
 
             {/* Nút Lưu - chỉ hiển thị ở mode register và khi có thay đổi */}
             {mode === 'register' && hasChanges() && (
-              <div className="flex justify-end pt-4 border-t border-gray-200">
+              <div className="flex justify-end pt-6 mt-6 border-t-2 border-gray-200">
                 <button
                   type="button"
                   onClick={handleSaveSchedule}
                   disabled={autoSaving || (selectedTasks.length === 0 && adHocTasks.length === 0)}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="px-8 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3 shadow-lg hover:shadow-xl transform hover:scale-105 font-semibold"
                 >
                   {autoSaving ? (
                     <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
                       <span>Đang lưu...</span>
                     </>
                   ) : (
@@ -1404,18 +1315,35 @@ const DailyReportPage = () => {
             {mode === 'report' && (
               <>
                 {todayReport && isReportSent(todayReport) ? (
-                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-center mt-4">
-                    <p className="font-medium">Báo cáo này đã được gửi rồi.</p>
-                    <p className="text-sm mt-1">Bạn có thể xem lại thông tin báo cáo ở trên.</p>
+                  <div className="p-5 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl text-center mt-6 shadow-sm">
+                    <div className="flex items-center justify-center gap-2 mb-2">
+                      <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p className="font-semibold text-blue-800">Báo cáo này đã được gửi rồi.</p>
+                    </div>
+                    <p className="text-sm text-blue-700">Bạn có thể xem lại thông tin báo cáo ở trên.</p>
                   </div>
                 ) : (
-                  <div className="flex justify-end pt-4 border-top border-gray-200">
+                  <div className="flex justify-end pt-6 mt-6 border-t-2 border-gray-200">
                     <button
                       type="submit"
                       disabled={loading || !todayReport || isReportSent(todayReport)}
-                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3 shadow-lg hover:shadow-xl transform hover:scale-105 font-semibold"
                     >
-                      {loading ? 'Đang gửi...' : 'Gửi báo cáo'}
+                      {loading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                          <span>Đang gửi...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                          </svg>
+                          <span>Gửi báo cáo</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 )}
@@ -1423,234 +1351,6 @@ const DailyReportPage = () => {
             )}
           </form>
           )}
-        </div>
-
-        {/* Lịch sử báo cáo (calendar) */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Lịch sử báo cáo</h2>
-
-          {/* Điều khiển tháng */}
-          <div className="flex items-center justify-between mb-4">
-            <button
-              type="button"
-              onClick={() => handleChangeMonth(-1)}
-              className="px-2 py-1 text-sm text-gray-600 hover:text-gray-900"
-            >
-              ← Tháng trước
-            </button>
-            <span className="font-medium text-gray-900">
-              {getMonthLabel(historyMonth, historyYear)}
-            </span>
-            <button
-              type="button"
-              onClick={() => handleChangeMonth(1)}
-              className="px-2 py-1 text-sm text-gray-600 hover:text-gray-900"
-            >
-              Tháng sau →
-            </button>
-          </div>
-
-          {/* Calendar grid */}
-          <div className="grid grid-cols-7 gap-1 text-xs mb-3">
-            {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map(d => (
-              <div key={d} className="text-center font-semibold text-gray-500 py-1">
-                {d}
-              </div>
-            ))}
-          </div>
-
-          {historyLoading ? (
-            <div className="flex items-center justify-center h-32">
-              <span className="text-sm text-gray-500">Đang tải lịch sử...</span>
-            </div>
-          ) : (
-            <div className="grid grid-cols-7 gap-1 mb-4 text-sm">
-              {buildCalendarDays(historyYear, historyMonth).map((dateStr, idx) => {
-                if (!dateStr) {
-                  return <div key={idx} className="h-8" />
-                }
-
-                const dateObj = new Date(dateStr)
-                const day = dateObj.getDate()
-                const reportsForDate = reportsByDate[dateStr] || []
-                const hasReport = reportsForDate.length > 0
-                const reportCount = reportsForDate.length
-                const isSelected = selectedHistoryDate === dateStr
-
-                return (
-                  <button
-                    key={dateStr}
-                    type="button"
-                    onClick={() => handleSelectHistoryDate(dateStr)}
-                    className={`h-8 flex items-center justify-center rounded-md border text-xs relative
-                      ${hasReport
-                        ? 'border-green-500 bg-green-50 text-green-800'
-                        : 'border-gray-200 bg-white text-gray-700'
-                      }
-                      ${isSelected ? 'ring-2 ring-blue-500 font-semibold' : ''}
-                    `}
-                    title={hasReport 
-                      ? `Đã có ${reportCount} báo cáo ngày này` 
-                      : 'Chưa có báo cáo ngày này'}
-                  >
-                    {day}
-                    {reportCount > 1 && (
-                      <span className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
-                        {reportCount}
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Chi tiết báo cáo của ngày được chọn */}
-          <div className="border-t border-gray-200 pt-3 mt-2">
-            <p className="text-xs text-gray-500 mb-2">
-              Ngày chọn: <span className="font-medium">{selectedHistoryDate}</span>
-              {selectedHistoryReports.length > 1 && (
-                <span className="ml-2 text-blue-600 font-semibold">({selectedHistoryReports.length} báo cáo)</span>
-              )}
-            </p>
-            {selectedHistoryReports.length > 0 ? (
-              <div className="space-y-4 max-h-60 overflow-y-auto pr-1">
-                {selectedHistoryReports.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map((report, reportIdx) => (
-                  <div key={report.reportId || reportIdx} className="border border-gray-300 rounded-md p-2 bg-white">
-                    {selectedHistoryReports.length > 1 && (
-                      <div className="text-xs text-gray-600 mb-2 pb-2 border-b border-gray-200 font-medium">
-                        Báo cáo #{selectedHistoryReports.length - reportIdx} - {new Date(report.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    )}
-                    <div className="space-y-3">
-                {/* Công việc đã chọn */}
-                {report.selectedTasks && report.selectedTasks.length > 0 && (
-                  <div>
-                    <h3 className="text-xs font-semibold text-gray-700 mb-1">
-                      Công việc đã báo cáo ({report.selectedTasks.length})
-                    </h3>
-                    <div className="space-y-1.5">
-                      {report.selectedTasks.map(task => (
-                        <div
-                          key={task.taskId}
-                          className="bg-gray-50 border border-gray-200 rounded-md p-2"
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <p className="text-xs font-medium text-gray-900">{task.title}</p>
-                              {task.description && (
-                                <p className="text-[11px] text-gray-600 mt-0.5 line-clamp-2">
-                                  {task.description}
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex flex-col items-end gap-1 ml-2">
-                              {task.priority && (
-                                <span
-                                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${getPriorityColor(
-                                    task.priority
-                                  )}`}
-                                >
-                                  {getPriorityLabel(task.priority)}
-                                </span>
-                              )}
-                              {task.directorEvaluation?.rating && (
-                                <span
-                                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${getDirectorRatingColor(
-                                    task.directorEvaluation.rating
-                                  )}`}
-                                >
-                                  GĐ: {getDirectorRatingLabel(task.directorEvaluation.rating)}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          {task.comment && (
-                            <p className="text-[11px] text-gray-600 mt-1 italic">
-                              <strong>Báo cáo kết quả:</strong> "{task.comment}"
-                            </p>
-                          )}
-                          {task.directorEvaluation?.comment && (
-                            <p className="text-[11px] text-blue-700 mt-1 italic">
-                              Ghi chú GĐ: "{task.directorEvaluation.comment}"
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Công việc phát sinh */}
-                {report.adHocTasks && report.adHocTasks.length > 0 && (
-                  <div>
-                    <h3 className="text-xs font-semibold text-gray-700 mb-1">
-                      Công việc phát sinh ({report.adHocTasks.length})
-                    </h3>
-                    <div className="space-y-1.5">
-                      {report.adHocTasks.map(task => (
-                        <div
-                          key={task.id}
-                          className="bg-blue-50 border border-blue-200 rounded-md p-2"
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <p className="text-xs font-medium text-gray-900">
-                                {task.content}
-                              </p>
-                            </div>
-                            <div className="flex flex-col items-end gap-1 ml-2">
-                              {task.priority && (
-                                <span
-                                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${getPriorityColor(
-                                    task.priority
-                                  )}`}
-                                >
-                                  {getPriorityLabel(task.priority)}
-                                </span>
-                              )}
-                              {task.directorEvaluation?.rating && (
-                                <span
-                                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${getDirectorRatingColor(
-                                    task.directorEvaluation.rating
-                                  )}`}
-                                >
-                                  GĐ: {getDirectorRatingLabel(task.directorEvaluation.rating)}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          {task.comment && (
-                            <p className="text-[11px] text-gray-600 mt-1 italic">
-                              <strong>Báo cáo kết quả:</strong> "{task.comment}"
-                            </p>
-                          )}
-                          {task.directorEvaluation?.comment && (
-                            <p className="text-[11px] text-blue-700 mt-1 italic">
-                              Ghi chú GĐ: "{task.directorEvaluation.comment}"
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {!report.selectedTasks?.length &&
-                  !report.adHocTasks?.length && (
-                    <p className="text-xs text-gray-500">
-                      Báo cáo này không có nội dung chi tiết.
-                    </p>
-                  )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-gray-500">
-                Không có báo cáo nào cho ngày này.
-              </p>
-            )}
           </div>
         </div>
       </div>

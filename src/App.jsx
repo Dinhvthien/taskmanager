@@ -22,15 +22,19 @@ import DepartmentInfoPage from './pages/manager/DepartmentInfoPage'
 import DepartmentsPage from './pages/super-admin/DepartmentsPage'
 import ReportsPage from './pages/ReportsPage'
 import DailyReportPage from './pages/DailyReportPage'
+import DailyReportHistoryPage from './pages/DailyReportHistoryPage'
 import EmployeeReportsPage from './pages/director/EmployeeReportsPage'
 import ScheduleRegistrationsPage from './pages/director/ScheduleRegistrationsPage'
 import DepartmentReportsPage from './pages/director/DepartmentReportsPage'
 import OtherReportsPage from './pages/director/OtherReportsPage'
 import ReportStatisticsPage from './pages/director/ReportStatisticsPage'
+import EmployeeRankingPage from './pages/director/EmployeeRankingPage'
+import DepartmentRankingPage from './pages/director/DepartmentRankingPage'
 import MyTasksPage from './pages/user/MyTasksPage'
 import TaskDetailPage from './pages/user/TaskDetailPage'
 import NotificationHistoryPage from './pages/NotificationHistoryPage'
 import ProfilePage from './pages/ProfilePage'
+import MessagingPage from './pages/MessagingPage'
 
 function App() {
   return (
@@ -58,6 +62,7 @@ function App() {
           <Route path="departments" element={<DepartmentsPage />} />
           <Route path="reports" element={<ReportsPage role="super-admin" />} />
           <Route path="notifications" element={<NotificationHistoryPage />} />
+          <Route path="messaging" element={<MessagingPage />} />
           <Route index element={<Navigate to="/super-admin/dashboard" replace />} />
         </Route>
 
@@ -76,19 +81,24 @@ function App() {
           <Route path="tasks/hoanthanh" element={<CompanyTasksPage />} />
           <Route path="tasks/choduyet" element={<CompanyTasksPage />} />
           <Route path="tasks/ad-hoc" element={<AdHocTasksPage />} />
+          <Route path="tasks/deleted" element={<CompanyTasksPage showDeleted={true} />} />
           <Route path="tasks/:taskId" element={<TaskDetailPage basePath="/director" />} />
           <Route path="department-tasks" element={<DepartmentTasksPage />} />
           <Route path="users" element={<CompanyUsersPage />} />
+          <Route path="users/deleted" element={<CompanyUsersPage showDeleted={true} />} />
           <Route path="departments" element={<CompanyDepartmentsPage />} />
           <Route path="company" element={<CompanyInfoPage />} />
           <Route path="reports/employees" element={<EmployeeReportsPage />} />
           <Route path="reports/departments" element={<DepartmentReportsPage />} />
           <Route path="reports/other" element={<OtherReportsPage />} />
           <Route path="reports/statistics" element={<ReportStatisticsPage />} />
+          <Route path="reports/ranking" element={<EmployeeRankingPage />} />
+          <Route path="reports/department-ranking" element={<DepartmentRankingPage />} />
           <Route path="reports/schedules" element={<ScheduleRegistrationsPage />} />
           <Route path="reports" element={<Navigate to="/director/reports/employees" replace />} />
           <Route path="notifications" element={<NotificationHistoryPage />} />
           <Route path="profile" element={<ProfilePage />} />
+          <Route path="messaging" element={<MessagingPage />} />
           <Route index element={<Navigate to="/director/dashboard" replace />} />
         </Route>
 
@@ -109,8 +119,10 @@ function App() {
           <Route path="department" element={<DepartmentInfoPage />} />
           <Route path="reports" element={<ReportsPage role="manager" />} />
           <Route path="daily-report" element={<DailyReportPage />} />
+          <Route path="daily-report/history" element={<DailyReportHistoryPage />} />
           <Route path="notifications" element={<NotificationHistoryPage />} />
           <Route path="profile" element={<ProfilePage />} />
+          <Route path="messaging" element={<MessagingPage />} />
           <Route index element={<Navigate to="/manager/dashboard" replace />} />
         </Route>
 
@@ -129,8 +141,10 @@ function App() {
           <Route path="tasks/in-progress" element={<MyTasksPage />} />
           <Route path="tasks/completed" element={<MyTasksPage />} />
           <Route path="daily-report" element={<DailyReportPage />} />
+          <Route path="daily-report/history" element={<DailyReportHistoryPage />} />
           <Route path="notifications" element={<NotificationHistoryPage />} />
           <Route path="profile" element={<ProfilePage />} />
+          <Route path="messaging" element={<MessagingPage />} />
           <Route index element={<Navigate to="/user/dashboard" replace />} />
         </Route>
 

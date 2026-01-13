@@ -19,9 +19,13 @@ export const userService = {
   },
 
   // Lấy users theo director ID
-  getUsersByDirectorId: (directorId, page = 0, size = 20) => {
+  getUsersByDirectorId: (directorId, page = 0, size = 20, includeDeleted = false) => {
+    const params = { page, size }
+    if (includeDeleted) {
+      params.deleted = true
+    }
     return api.get(`/users/director/${directorId}`, {
-      params: { page, size }
+      params
     })
   },
 

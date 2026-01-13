@@ -11,9 +11,11 @@ import EditTaskModal from '../../components/EditTaskModal'
 import Pagination from '../../components/Pagination'
 import RecurringTaskGroup from '../../components/RecurringTaskGroup'
 import FileUpload from '../../components/FileUpload'
+import DateTimeInput from '../../components/DateTimeInput'
 import { TASK_STATUS_LABELS, TASK_STATUS_COLORS } from '../../utils/constants'
+import { formatDate, formatDateTime } from '../../utils/dateFormat'
 
-const CompanyTasksPage = () => {
+const CompanyTasksPage = ({ showDeleted = false }) => {
   const [tasks, setTasks] = useState([])
   const [recurringTasks, setRecurringTasks] = useState([])
   const [taskGroups, setTaskGroups] = useState([]) // Nhóm task theo recurring task
@@ -59,7 +61,7 @@ const CompanyTasksPage = () => {
   const statusFilterMap = {
     'danglam': 'IN_PROGRESS',
     'hoanthanh': 'COMPLETED',
-    'choduyet': 'PENDING'
+    'choduyet': 'WAITING' // Đang chờ (WAITING), không phải Chờ nhận việc (PENDING)
   }
   
   // Xác định status filter từ URL
@@ -67,7 +69,7 @@ const CompanyTasksPage = () => {
     const path = location.pathname
     if (path.includes('/tasks/danglam')) return 'IN_PROGRESS'
     if (path.includes('/tasks/hoanthanh')) return 'COMPLETED'
-    if (path.includes('/tasks/choduyet')) return 'PENDING'
+    if (path.includes('/tasks/choduyet')) return 'WAITING' // Đang chờ (WAITING), không phải Chờ nhận việc (PENDING)
     return null
   }
   
@@ -94,6 +96,11 @@ const CompanyTasksPage = () => {
   const [loadingAllUsers, setLoadingAllUsers] = useState(false)
   const [taskFiles, setTaskFiles] = useState([]) // Files để đính kèm khi tạo task
   const [uploadingFiles, setUploadingFiles] = useState(false)
+  
+  // Search/Filter states
+  const [searchTitle, setSearchTitle] = useState('')
+  const [deadlineStatusFilter, setDeadlineStatusFilter] = useState('all') // 'all', 'overdue', 'near', 'normal'
+  const [departmentFilter, setDepartmentFilter] = useState('all') // 'all' hoặc departmentId
 
   useEffect(() => {
     loadDirector()
@@ -115,26 +122,33 @@ const CompanyTasksPage = () => {
     }
   }, [director])
 
-  // Tự động chuyển sang tab "regular" khi có status filter
+  // Không tự động chuyển tab nữa - cho phép tab "Lặp lại" hoạt động khi có statusFilter
+
+  // Reset state khi chuyển giữa deleted và normal page
   useEffect(() => {
-    if (statusFilter && activeTab === 'recurring') {
-      setActiveTab('regular')
-      setCurrentPage(0)
-    }
-  }, [statusFilter])
+    setTasks([])
+    setRegularTasks([])
+    setTaskGroups([])
+    setCurrentPage(0)
+    setError('')
+  }, [showDeleted])
 
   useEffect(() => {
     if (director && departmentsLoaded) {
-      if (activeTab === 'recurring') {
+      if (showDeleted) {
+        // Trang deleted tasks: chỉ load deleted tasks, không load recurring
+        loadTasks()
+      } else if (activeTab === 'recurring') {
         // Tab "Lặp lại": Load tất cả tasks (không phân trang) để nhóm đúng
         loadAllTasks()
+        loadRecurringTasks()
       } else {
-        // Tab "Thường": Load tasks với pagination
+        // Tab "Thường": Load tasks với pagination từ backend (backend sẽ sắp xếp và filter)
         loadTasks()
+        loadRecurringTasks()
       }
-      loadRecurringTasks()
     }
-  }, [director, currentPage, departmentsLoaded, activeTab])
+  }, [director, currentPage, departmentsLoaded, activeTab, showDeleted, statusFilter, searchTitle, deadlineStatusFilter, departmentFilter])
 
   const loadDepartments = async () => {
     if (!director) return
@@ -177,41 +191,90 @@ const CompanyTasksPage = () => {
   }
 
   const sortTasks = (tasks) => {
+    // Nếu có statusFilter (trang "Hoàn thành", "Đang làm", "Chờ duyệt"), giữ nguyên logic cũ
+    if (statusFilter) {
+      const now = new Date()
+      const sixHoursFromNow = new Date(now.getTime() + 6 * 60 * 60 * 1000) // 6 hours in milliseconds
+      
+      // Tách tasks thành 2 nhóm: chưa hoàn thành và đã hoàn thành
+      const incompleteTasks = tasks.filter(task => task.status !== 'COMPLETED')
+      const completedTasks = tasks.filter(task => task.status === 'COMPLETED')
+      
+      // Sắp xếp nhóm chưa hoàn thành theo deadline
+      incompleteTasks.sort((a, b) => {
+        const endDateA = new Date(a.endDate || 0)
+        const endDateB = new Date(b.endDate || 0)
+        return endDateA - endDateB
+      })
+      
+      // Sắp xếp nhóm đã hoàn thành theo deadline (mới nhất lên trước)
+      completedTasks.sort((a, b) => {
+        const endDateA = new Date(a.endDate || 0)
+        const endDateB = new Date(b.endDate || 0)
+        return endDateB - endDateA
+      })
+      
+      return [...incompleteTasks, ...completedTasks]
+    }
+    
+    // Trang "Tất cả công việc" (không có statusFilter): chỉ hiển thị chưa hoàn thành + sắp xếp đặc biệt
     const now = new Date()
     const sixHoursFromNow = new Date(now.getTime() + 6 * 60 * 60 * 1000) // 6 hours in milliseconds
     
-    // Tách tasks thành 2 nhóm: chưa hoàn thành và đã hoàn thành
+    // Filter: Chỉ lấy công việc chưa hoàn thành
     const incompleteTasks = tasks.filter(task => task.status !== 'COMPLETED')
-    const completedTasks = tasks.filter(task => task.status === 'COMPLETED')
     
-    // Sắp xếp nhóm chưa hoàn thành:
-    // 1. Gần hết hạn (còn < 6 giờ) lên trước
-    // 2. Sau đó sắp xếp theo deadline (gần hết hạn nhất lên trước)
-    incompleteTasks.sort((a, b) => {
-      const endDateA = new Date(a.endDate)
-      const endDateB = new Date(b.endDate)
+    // Phân loại tasks:
+    // 1. Quá hạn (endDate < now)
+    // 2. Sắp đến hạn (chưa quá hạn nhưng gần deadline - còn < 6 giờ)
+    // 3. Còn lại
+    const overdueTasks = []
+    const nearDeadlineTasks = []
+    const otherTasks = []
+    
+    incompleteTasks.forEach(task => {
+      if (!task.endDate) {
+        // Không có deadline thì xếp vào "còn lại"
+        otherTasks.push(task)
+        return
+      }
       
-      // Kiểm tra xem task có gần hết hạn không (< 6 giờ)
-      const isNearDeadlineA = endDateA <= sixHoursFromNow && endDateA > now
-      const isNearDeadlineB = endDateB <= sixHoursFromNow && endDateB > now
+      const endDate = new Date(task.endDate)
+      const isOverdue = endDate < now
+      const isNearDeadline = endDate >= now && endDate <= sixHoursFromNow
       
-      // Nếu một task gần hết hạn và task kia không, task gần hết hạn lên trước
-      if (isNearDeadlineA && !isNearDeadlineB) return -1
-      if (!isNearDeadlineA && isNearDeadlineB) return 1
-      
-      // Nếu cả hai đều gần hết hạn hoặc cả hai đều không, sắp xếp theo deadline
-      return endDateA - endDateB
+      if (isOverdue) {
+        overdueTasks.push(task)
+      } else if (isNearDeadline) {
+        nearDeadlineTasks.push(task)
+      } else {
+        otherTasks.push(task)
+      }
     })
     
-    // Sắp xếp nhóm đã hoàn thành theo deadline (mới hoàn thành nhất lên trước)
-    completedTasks.sort((a, b) => {
-      const endDateA = new Date(a.endDate)
-      const endDateB = new Date(b.endDate)
-      return endDateB - endDateA // Ngược lại để mới nhất lên trước
+    // Sắp xếp quá hạn: theo deadline tăng dần (gần nhất lên trước)
+    overdueTasks.sort((a, b) => {
+      const endDateA = new Date(a.endDate || 0)
+      const endDateB = new Date(b.endDate || 0)
+      return endDateB - endDateA // Ngược để gần nhất (deadline lớn hơn) lên trước
     })
     
-    // Ghép lại: chưa hoàn thành lên trên, đã hoàn thành xuống dưới
-    return [...incompleteTasks, ...completedTasks]
+    // Sắp xếp sắp đến hạn: theo deadline tăng dần (gần nhất lên trước)
+    nearDeadlineTasks.sort((a, b) => {
+      const endDateA = new Date(a.endDate || 0)
+      const endDateB = new Date(b.endDate || 0)
+      return endDateA - endDateB // Deadline gần nhất lên trước
+    })
+    
+    // Sắp xếp còn lại: theo deadline tăng dần (gần nhất lên trước)
+    otherTasks.sort((a, b) => {
+      const endDateA = new Date(a.endDate || 0)
+      const endDateB = new Date(b.endDate || 0)
+      return endDateA - endDateB // Deadline gần nhất lên trước
+    })
+    
+    // Ghép lại: quá hạn → sắp đến hạn → còn lại
+    return [...overdueTasks, ...nearDeadlineTasks, ...otherTasks]
   }
 
   const loadRecurringTasks = async () => {
@@ -280,10 +343,25 @@ const CompanyTasksPage = () => {
     
     try {
       setLoading(true)
-      // Load tất cả tasks (size lớn) để nhóm đúng các recurring tasks
-      const response = await taskService.getTasksByDirectorId(director.directorId, 0, 10000)
-      const result = response.data.result
-      const tasksList = result.content || []
+      // Load tất cả tasks (bao gồm cả COMPLETED) để nhóm đúng các recurring tasks
+      // Gọi API 2 lần: một lần cho incomplete tasks, một lần cho COMPLETED tasks
+      const [incompleteResponse, completedResponse] = await Promise.all([
+        taskService.getTasksByDirectorId(director.directorId, 0, 10000, false, null),
+        taskService.getTasksByDirectorId(director.directorId, 0, 10000, false, 'COMPLETED')
+      ])
+      
+      const incompleteTasksFromApi = incompleteResponse.data.result?.content || []
+      const completedTasksFromApi = completedResponse.data.result?.content || []
+      
+      // Gộp lại tất cả tasks
+      const allTasksList = [...incompleteTasksFromApi, ...completedTasksFromApi]
+      
+      // Loại bỏ duplicate tasks (nếu có)
+      const uniqueTasksMap = new Map()
+      allTasksList.forEach(task => {
+        uniqueTasksMap.set(task.taskId, task)
+      })
+      const tasksList = Array.from(uniqueTasksMap.values())
       
       // Load đầy đủ thông tin cho mỗi task (bao gồm departmentNames)
       const tasksWithDetails = await Promise.all(
@@ -311,8 +389,65 @@ const CompanyTasksPage = () => {
         })
       )
       
-      // Sắp xếp tasks theo yêu cầu
-      const sortedTasks = sortTasks(tasksWithDetails)
+      // Với tab "Lặp lại", không filter bỏ COMPLETED tasks, chỉ sắp xếp đơn giản
+      // Sắp xếp: incomplete tasks trước (theo logic quá hạn, sắp đến hạn, còn lại), sau đó COMPLETED tasks
+      const now = new Date()
+      const sixHoursFromNow = new Date(now.getTime() + 6 * 60 * 60 * 1000)
+      
+      const incompleteTasks = tasksWithDetails.filter(task => task.status !== 'COMPLETED')
+      const completedTasks = tasksWithDetails.filter(task => task.status === 'COMPLETED')
+      
+      // Sắp xếp incomplete tasks: quá hạn → sắp đến hạn → còn lại
+      const overdueTasks = []
+      const nearDeadlineTasks = []
+      const otherTasks = []
+      
+      incompleteTasks.forEach(task => {
+        if (!task.endDate) {
+          otherTasks.push(task)
+          return
+        }
+        const endDate = new Date(task.endDate)
+        const isOverdue = endDate < now
+        const isNearDeadline = endDate >= now && endDate <= sixHoursFromNow
+        
+        if (isOverdue) {
+          overdueTasks.push(task)
+        } else if (isNearDeadline) {
+          nearDeadlineTasks.push(task)
+        } else {
+          otherTasks.push(task)
+        }
+      })
+      
+      // Sắp xếp từng nhóm
+      overdueTasks.sort((a, b) => {
+        const endDateA = new Date(a.endDate || 0)
+        const endDateB = new Date(b.endDate || 0)
+        return endDateB - endDateA
+      })
+      
+      nearDeadlineTasks.sort((a, b) => {
+        const endDateA = new Date(a.endDate || 0)
+        const endDateB = new Date(b.endDate || 0)
+        return endDateA - endDateB
+      })
+      
+      otherTasks.sort((a, b) => {
+        const endDateA = new Date(a.endDate || 0)
+        const endDateB = new Date(b.endDate || 0)
+        return endDateA - endDateB
+      })
+      
+      // Sắp xếp COMPLETED tasks: mới nhất lên trước
+      completedTasks.sort((a, b) => {
+        const endDateA = new Date(a.endDate || 0)
+        const endDateB = new Date(b.endDate || 0)
+        return endDateB - endDateA
+      })
+      
+      // Ghép lại: incomplete tasks (quá hạn → sắp đến hạn → còn lại) → COMPLETED tasks
+      const sortedTasks = [...overdueTasks, ...nearDeadlineTasks, ...otherTasks, ...completedTasks]
       setTasks(sortedTasks)
       setTotalPages(1) // Không phân trang cho tab "Lặp lại"
     } catch (err) {
@@ -322,16 +457,53 @@ const CompanyTasksPage = () => {
     }
   }
 
+
   const loadTasks = async () => {
     if (!director) return
     
     try {
       setLoading(true)
-      const response = await taskService.getTasksByDirectorId(director.directorId, currentPage, 20)
+      const departmentIdParam = departmentFilter !== 'all' ? parseInt(departmentFilter) : null
+      const deadlineStatusParam = deadlineStatusFilter !== 'all' ? deadlineStatusFilter : null
+      const searchTitleParam = searchTitle && searchTitle.trim() ? searchTitle.trim() : null
+      
+      const response = await taskService.getTasksByDirectorId(
+        director.directorId, 
+        currentPage, 
+        15, 
+        showDeleted, 
+        statusFilter || null,
+        searchTitleParam,
+        deadlineStatusParam,
+        departmentIdParam
+      )
       const result = response.data.result
       const tasksList = result.content || []
       
-      // Load đầy đủ thông tin cho mỗi task (bao gồm departmentNames)
+      // Với deleted tasks, không load detail (API getTaskById không trả về deleted tasks)
+      if (showDeleted) {
+        // Map departmentIds thành departmentNames cho deleted tasks
+        const tasksWithDeptNames = tasksList.map(task => {
+          if (task.departmentIds && task.departmentIds.length > 0 && departments.length > 0) {
+            const deptNames = task.departmentIds
+              .map(deptId => {
+                const dept = departments.find(d => d.departmentId === deptId)
+                return dept ? dept.departmentName : null
+              })
+              .filter(name => name !== null)
+            return {
+              ...task,
+              departmentNames: deptNames
+            }
+          }
+          return task
+        })
+        setTasks(tasksWithDeptNames)
+        setTotalPages(result.totalPages || 1)
+        return
+      }
+      
+      // Load đầy đủ thông tin cho mỗi task (bao gồm departmentNames) - chỉ cho non-deleted tasks
       const tasksWithDetails = await Promise.all(
         tasksList.map(async (task) => {
           try {
@@ -368,6 +540,16 @@ const CompanyTasksPage = () => {
     }
   }
 
+  // Helper function để reload tasks dựa trên activeTab
+  const reloadTasks = async () => {
+    if (activeTab === 'recurring') {
+      await loadAllTasks()
+    } else {
+      // Tab "Thường": pagination từ backend (backend sẽ sắp xếp)
+      await loadTasks()
+    }
+  }
+
   const handleDeactivateRecurring = async (recurringTaskId) => {
     if (!window.confirm('Bạn có chắc chắn muốn dừng lặp lại công việc này?')) {
       return
@@ -376,12 +558,7 @@ const CompanyTasksPage = () => {
     try {
       await taskService.deactivateRecurringTask(recurringTaskId)
       await loadRecurringTasks()
-      // Reload tasks dựa trên activeTab
-      if (activeTab === 'recurring') {
-        await loadAllTasks()
-      } else {
-        await loadTasks()
-      }
+      await reloadTasks()
       setError('')
     } catch (err) {
       setError(err.response?.data?.message || 'Lỗi khi dừng lặp lại công việc')
@@ -396,12 +573,7 @@ const CompanyTasksPage = () => {
     try {
       await taskService.activateRecurringTask(recurringTaskId)
       await loadRecurringTasks()
-      // Reload tasks dựa trên activeTab
-      if (activeTab === 'recurring') {
-        await loadAllTasks()
-      } else {
-        await loadTasks()
-      }
+      await reloadTasks()
       setError('')
     } catch (err) {
       setError(err.response?.data?.message || 'Lỗi khi kích hoạt lại công việc')
@@ -420,13 +592,8 @@ const CompanyTasksPage = () => {
       setIsDeletingRecurring(true)
       await taskService.deleteRecurringTask(selectedRecurringTaskForDelete.recurringTaskId)
       
-      // Reload tasks sau khi xóa
-      if (activeTab === 'recurring') {
-        await loadAllTasks()
-    } else {
-        await loadTasks()
-      }
       await loadRecurringTasks()
+      await reloadTasks()
       
       setShowDeleteRecurringModal(false)
       setSelectedRecurringTaskForDelete(null)
@@ -501,13 +668,8 @@ const CompanyTasksPage = () => {
       // Lưu lại tab hiện tại trước khi reload
       const currentTab = activeTab
       
-      // Reload tasks sau khi cập nhật
-      if (currentTab === 'recurring') {
-        await loadAllTasks()
-      } else {
-        await loadTasks()
-      }
       await loadRecurringTasks()
+      await reloadTasks()
       
       // Đảm bảo giữ nguyên tab hiện tại
       setActiveTab(currentTab)
@@ -686,13 +848,8 @@ const CompanyTasksPage = () => {
       setDepartmentUsers({})
       setValidationErrors({})
       setAssignmentMode('department')
-      // Reload tasks dựa trên activeTab
-      if (activeTab === 'recurring') {
-        await loadAllTasks()
-      } else {
-        await loadTasks()
-      }
       await loadRecurringTasks()
+      await reloadTasks()
     } catch (err) {
       setError(err.response?.data?.message || 'Lỗi khi tạo task')
     } finally {
@@ -722,14 +879,11 @@ const CompanyTasksPage = () => {
       
       await taskService.updateTask(selectedTaskForEdit.taskId, updateData)
       
-      // Reload tasks sau khi cập nhật, dựa trên activeTab
+      // Lưu lại tab hiện tại trước khi reload
       const currentTab = activeTab
-      if (currentTab === 'recurring') {
-        await loadAllTasks()
-      } else {
-        await loadTasks()
-      }
+      
       await loadRecurringTasks()
+      await reloadTasks()
       
       // Đảm bảo giữ nguyên tab hiện tại
       setActiveTab(currentTab)
@@ -752,13 +906,8 @@ const CompanyTasksPage = () => {
       setIsDeleting(true)
       await taskService.deleteTask(selectedTaskForDelete.taskId)
       
-      // Reload tasks sau khi xóa
-      if (activeTab === 'recurring') {
-        await loadAllTasks()
-      } else {
-        await loadTasks()
-      }
       await loadRecurringTasks()
+      await reloadTasks()
       
       setShowDeleteModal(false)
       setSelectedTaskForDelete(null)
@@ -770,51 +919,199 @@ const CompanyTasksPage = () => {
     }
   }
 
-  // Re-group tasks khi recurring tasks, tasks hoặc statusFilter thay đổi
+  // Re-group tasks khi recurring tasks, tasks hoặc statusFilter thay đổi (chỉ khi không phải showDeleted)
   useEffect(() => {
+    if (showDeleted) {
+      // Khi showDeleted, không group tasks, chỉ set tasks trực tiếp
+      setRegularTasks([])
+      setTaskGroups([])
+      return
+    }
     if (tasks.length > 0) {
       groupTasksByRecurring(tasks)
     } else {
       setRegularTasks([])
       setTaskGroups([])
     }
-  }, [recurringTasks, tasks, statusFilter])
+  }, [recurringTasks, tasks, statusFilter, showDeleted])
+
 
   if (loading && tasks.length === 0) return <LoadingSpinner />
 
   // Filter tasks based on active tab
-  const displayTaskGroups = activeTab === 'recurring' ? taskGroups : []
-  const displayRegularTasks = activeTab === 'regular' ? regularTasks : []
+  // Hiển thị taskGroups ở tab "recurring" (có thể có statusFilter)
+  const displayTaskGroups = showDeleted ? [] : (activeTab === 'recurring' ? taskGroups : [])
+  const displayRegularTasks = showDeleted ? tasks : (activeTab === 'regular' ? regularTasks : [])
+  
+  // Filter tasks by search criteria
+  const filterTasksBySearch = (tasksList) => {
+    const now = new Date()
+    const sixHoursFromNow = new Date(now.getTime() + 6 * 60 * 60 * 1000)
+    
+    return tasksList.filter(task => {
+      // Filter by title
+      if (searchTitle && searchTitle.trim()) {
+        const titleMatch = task.title?.toLowerCase().includes(searchTitle.toLowerCase().trim())
+        if (!titleMatch) return false
+      }
+      
+      // Filter by deadline status (only for incomplete tasks)
+      if (deadlineStatusFilter !== 'all' && task.status !== 'COMPLETED') {
+        if (!task.endDate) {
+          // Tasks without deadline are considered "normal"
+          if (deadlineStatusFilter !== 'normal') return false
+        } else {
+          const endDate = new Date(task.endDate)
+          if (deadlineStatusFilter === 'overdue' && endDate >= now) return false
+          if (deadlineStatusFilter === 'near' && (endDate < now || endDate > sixHoursFromNow)) return false
+          if (deadlineStatusFilter === 'normal' && endDate <= sixHoursFromNow) return false
+        }
+      }
+      
+      // Filter by department
+      if (departmentFilter !== 'all') {
+        const deptId = parseInt(departmentFilter)
+        if (!task.departmentIds || !task.departmentIds.some(id => id === deptId || parseInt(id) === deptId)) {
+          return false
+        }
+      }
+      
+      return true
+    })
+  }
+  
+  // Filter task groups
+  const filterTaskGroups = (groups) => {
+    return groups.map(group => ({
+      ...group,
+      tasks: filterTasksBySearch(group.tasks)
+    })).filter(group => group.tasks.length > 0)
+  }
+  
+  // Apply filters
+  const filteredTaskGroups = displayTaskGroups.length > 0 ? filterTaskGroups(displayTaskGroups) : []
+  const filteredRegularTasks = displayRegularTasks.length > 0 ? filterTasksBySearch(displayRegularTasks) : []
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 sm:mb-6 gap-3">
+      {/* Header */}
+      <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
+            {showDeleted ? 'Danh sách công việc đã bị xóa' : 'Quản lý công việc'}
+          </h1>
+          <p className="text-sm sm:text-base text-gray-600">
+            {showDeleted 
+              ? 'Xem danh sách các công việc đã bị xóa' 
+              : 'Quản lý và theo dõi công việc trong công ty'}
+          </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg sm:rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl font-semibold flex items-center justify-center space-x-2 text-sm sm:text-base"
-        >
-          <span>+</span>
-          <span>Tạo Task</span>
-        </button>
+        {/* Nút Tạo Task - chỉ hiển thị khi không ở trang hoàn thành và chờ duyệt, và không phải trang deleted */}
+        {!showDeleted && statusFilter !== 'COMPLETED' && statusFilter !== 'WAITING' && (
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg sm:rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl font-semibold flex items-center justify-center space-x-2 text-sm sm:text-base whitespace-nowrap"
+          >
+            <span>+</span>
+            <span>Tạo Task</span>
+          </button>
+        )}
       </div>
 
-      {/* Tabs */}
-      <div className="mb-4 border-b border-gray-200">
-        <nav className="flex space-x-8">
-          <button
-            onClick={() => {
-              setActiveTab('regular')
-              setCurrentPage(0) // Reset về trang đầu khi chuyển tab
-            }}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'regular'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Thường
+      {!showDeleted && (
+        <>
+          {/* Search and Filter Bar */}
+          <div className="mb-4 bg-white p-4 rounded-lg shadow border border-gray-200">
+            <div className={`grid grid-cols-1 gap-4 ${(statusFilter === 'COMPLETED' || statusFilter === 'WAITING') ? 'md:grid-cols-2' : 'md:grid-cols-4'}`}>
+              {/* Search by title */}
+              <div className={(statusFilter === 'COMPLETED' || statusFilter === 'WAITING') ? 'md:col-span-1' : 'md:col-span-2'}>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tìm kiếm theo tên
+                </label>
+                <input
+                  type="text"
+                  value={searchTitle}
+                  onChange={(e) => setSearchTitle(e.target.value)}
+                  placeholder="Nhập tên công việc..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                />
+              </div>
+              
+              {/* Filter by deadline status - Ẩn khi ở trang hoàn thành và trang chờ duyệt */}
+              {statusFilter !== 'COMPLETED' && statusFilter !== 'WAITING' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Trạng thái deadline
+                  </label>
+                  <select
+                    value={deadlineStatusFilter}
+                    onChange={(e) => setDeadlineStatusFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  >
+                    <option value="all">Tất cả</option>
+                    <option value="overdue">Quá hạn</option>
+                    <option value="near">Sắp đến hạn</option>
+                    <option value="normal">Bình thường</option>
+                  </select>
+                </div>
+              )}
+              
+              {/* Filter by department */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Phòng ban
+                </label>
+                <select
+                  value={departmentFilter}
+                  onChange={(e) => setDepartmentFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                >
+                  <option value="all">Tất cả</option>
+                  {departments.map(dept => (
+                    <option key={dept.departmentId} value={dept.departmentId}>
+                      {dept.departmentName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            
+            {/* Clear filters button */}
+            {(searchTitle || ((statusFilter !== 'COMPLETED' && statusFilter !== 'WAITING') && deadlineStatusFilter !== 'all') || departmentFilter !== 'all') && (
+              <div className="mt-3">
+                <button
+                  onClick={() => {
+                    setSearchTitle('')
+                    setDeadlineStatusFilter('all')
+                    setDepartmentFilter('all')
+                  }}
+                  className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  Xóa bộ lọc
+                </button>
+              </div>
+            )}
+          </div>
+          
+        </>
+      )}
+
+      {/* Tabs - Ẩn tabs khi showDeleted */}
+      {!showDeleted && (
+        <div className="mb-4 border-b border-gray-200">
+          <nav className="flex space-x-8">
+            <button
+              onClick={() => {
+                setActiveTab('regular')
+                setCurrentPage(0) // Reset về trang đầu khi chuyển tab
+              }}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'regular'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Thường
           </button>
           <button
             onClick={() => {
@@ -830,7 +1127,8 @@ const CompanyTasksPage = () => {
             Lặp lại
           </button>
         </nav>
-      </div>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
@@ -843,9 +1141,9 @@ const CompanyTasksPage = () => {
       ) : (
         <>
           {/* Recurring Task Groups */}
-          {displayTaskGroups.length > 0 && (
+          {filteredTaskGroups.length > 0 && (
             <div className="mb-6">
-              {displayTaskGroups.map((group) => (
+              {filteredTaskGroups.map((group) => (
                 <RecurringTaskGroup
                   key={group.recurringTask.recurringTaskId}
                   recurringTask={group.recurringTask}
@@ -859,10 +1157,10 @@ const CompanyTasksPage = () => {
             </div>
           )}
 
-          {/* Mobile Card View - Chỉ hiển thị khi tab "Thường" */}
-          {activeTab === 'regular' && (
+          {/* Mobile Card View - Hiển thị khi tab "Thường" hoặc showDeleted */}
+          {(showDeleted || activeTab === 'regular') && (
           <div className="md:hidden space-y-2.5">
-            {displayRegularTasks.map((task) => {
+            {filteredRegularTasks.map((task) => {
               const now = new Date()
               const endDate = task.endDate ? new Date(task.endDate) : null
               const hoursUntilDeadline = endDate ? (endDate - now) / (1000 * 60 * 60) : null
@@ -956,7 +1254,11 @@ const CompanyTasksPage = () => {
                   {(task.status === 'WAITING' || (task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0)) && (
                     <div className="mb-2">
                       {task.waitingReason ? (
-                        <div className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-orange-700'} bg-orange-50 border border-orange-200 rounded-md p-2`}>
+                        <div className={`text-xs rounded-md p-2 ${
+                          isOverdue 
+                            ? 'text-orange-100 bg-orange-900 border border-orange-700' 
+                            : 'text-orange-700 bg-orange-50 border border-orange-200'
+                        }`}>
                           <span className="font-semibold">Lý do chờ:</span> <span className="break-words">{task.waitingReason}</span>
                         </div>
                       ) : task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0 ? (
@@ -968,7 +1270,11 @@ const CompanyTasksPage = () => {
                               ? task.departmentNames[deptIndex] 
                               : `Phòng ban ${deptId}`
                             return (
-                              <div key={deptId} className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-orange-700'} bg-orange-50 border border-orange-200 rounded-md p-2`}>
+                              <div key={deptId} className={`text-xs rounded-md p-2 ${
+                                isOverdue 
+                                  ? 'text-orange-100 bg-orange-900 border border-orange-700' 
+                                  : 'text-orange-700 bg-orange-50 border border-orange-200'
+                              }`}>
                                 <span className="font-semibold">{deptName}:</span> <span className="break-words">{reason}</span>
                               </div>
                             )
@@ -1017,7 +1323,7 @@ const CompanyTasksPage = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
                         <span className="text-xs font-medium whitespace-nowrap">
-                          {endDate.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
+                          {formatDate(endDate)}
                         </span>
                       </div>
                     )}
@@ -1054,25 +1360,19 @@ const CompanyTasksPage = () => {
           </div>
           )}
 
-          {/* Desktop Card View - Chỉ hiển thị khi tab "Thường" */}
-          {activeTab === 'regular' && (
+          {/* Desktop Card View - Hiển thị khi tab "Thường" hoặc showDeleted */}
+          {(showDeleted || activeTab === 'regular') && (
           <div className="hidden md:block space-y-3">
-            {displayRegularTasks.map((task) => {
+            {filteredRegularTasks.map((task) => {
               const now = new Date()
               const taskEndDate = task.endDate ? new Date(task.endDate) : null
               const hoursUntilDeadline = taskEndDate ? (taskEndDate - now) / (1000 * 60 * 60) : null
               const isOverdue = taskEndDate && taskEndDate < now && task.status !== 'COMPLETED'
               const isNearDeadline = hoursUntilDeadline && hoursUntilDeadline > 0 && hoursUntilDeadline <= 6 && task.status !== 'COMPLETED'
 
-              const formatDate = (dateString) => {
+              const formatDateLocal = (dateString) => {
                 if (!dateString) return 'N/A'
-                return new Date(dateString).toLocaleDateString('vi-VN', {
-                  year: 'numeric',
-                  month: '2-digit',
-                  day: '2-digit',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })
+                return formatDateTime(dateString)
               }
 
               return (
@@ -1141,7 +1441,7 @@ const CompanyTasksPage = () => {
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
-                            <span>{formatDate(task.startDate)} - {formatDate(task.endDate)}</span>
+                              <span>{formatDateLocal(task.startDate)} - {formatDateLocal(task.endDate)}</span>
                           </div>
                         )}
 
@@ -1165,7 +1465,11 @@ const CompanyTasksPage = () => {
                       {(task.status === 'WAITING' || (task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0)) && (
                         <div className="mt-3">
                           {task.waitingReason ? (
-                            <div className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-orange-700'} bg-orange-50 border border-orange-200 rounded-md p-2`}>
+                            <div className={`text-xs rounded-md p-2 ${
+                              isOverdue 
+                                ? 'text-orange-100 bg-orange-900 border border-orange-700' 
+                                : 'text-orange-700 bg-orange-50 border border-orange-200'
+                            }`}>
                               <span className="font-semibold">Lý do chờ:</span> <span className="break-words">{task.waitingReason}</span>
                             </div>
                           ) : task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0 ? (
@@ -1177,7 +1481,11 @@ const CompanyTasksPage = () => {
                                   ? task.departmentNames[deptIndex] 
                                   : `Phòng ban ${deptId}`
                                 return (
-                                  <div key={deptId} className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-orange-700'} bg-orange-50 border border-orange-200 rounded-md p-2`}>
+                                  <div key={deptId} className={`text-xs rounded-md p-2 ${
+                                    isOverdue 
+                                      ? 'text-orange-100 bg-orange-900 border border-orange-700' 
+                                      : 'text-orange-700 bg-orange-50 border border-orange-200'
+                                  }`}>
                                     <span className="font-semibold">{deptName}:</span> <span className="break-words">{reason}</span>
                                   </div>
                                 )
@@ -1222,7 +1530,7 @@ const CompanyTasksPage = () => {
               )
             })}
             
-            {displayRegularTasks.length === 0 && (
+            {filteredRegularTasks.length === 0 && (
               <div className="text-center py-12 bg-white rounded-lg shadow border border-gray-200">
                 <p className="text-gray-500">Chưa có công việc nào</p>
               </div>
@@ -1230,13 +1538,13 @@ const CompanyTasksPage = () => {
           </div>
           )}
 
-          {(displayTaskGroups.length === 0 && displayRegularTasks.length === 0) && (
+          {(filteredTaskGroups.length === 0 && filteredRegularTasks.length === 0) && (
             <div className="text-center py-12 bg-white rounded-lg shadow">
               <p className="text-gray-500">Chưa có task nào</p>
             </div>
           )}
 
-          {activeTab === 'regular' && totalPages > 1 && (
+          {(showDeleted || activeTab === 'regular') && totalPages > 1 && (
             <div className="mt-6">
             <Pagination
               currentPage={currentPage + 1}
@@ -1327,20 +1635,19 @@ const CompanyTasksPage = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Ngày bắt đầu *
+                Ngày bắt đầu * <span className="text-xs font-normal text-gray-500">(dd/mm/yyyy HH:mm)</span>
               </label>
-              <input
-                type="datetime-local"
+              <DateTimeInput
                 required
                 value={formData.startDate}
-                onChange={(e) => {
-                  setFormData({ ...formData, startDate: e.target.value })
+                onChange={(value) => {
+                  setFormData({ ...formData, startDate: value })
                   if (validationErrors.startDate) {
                     setValidationErrors({ ...validationErrors, startDate: '' })
                   }
                   if (validationErrors.endDate && formData.endDate) {
                     const end = new Date(formData.endDate)
-                    const start = new Date(e.target.value)
+                    const start = new Date(value)
                     if (end > start) {
                       setValidationErrors({ ...validationErrors, endDate: '' })
                     }
@@ -1356,14 +1663,13 @@ const CompanyTasksPage = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Ngày kết thúc *
+                Ngày kết thúc * <span className="text-xs font-normal text-gray-500">(dd/mm/yyyy HH:mm)</span>
               </label>
-              <input
-                type="datetime-local"
+              <DateTimeInput
                 required
                 value={formData.endDate}
-                onChange={(e) => {
-                  setFormData({ ...formData, endDate: e.target.value })
+                onChange={(value) => {
+                  setFormData({ ...formData, endDate: value })
                   if (validationErrors.endDate) {
                     setValidationErrors({ ...validationErrors, endDate: '' })
                   }
@@ -1926,25 +2232,23 @@ const CompanyTasksPage = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Ngày bắt đầu *
+                Ngày bắt đầu * <span className="text-xs font-normal text-gray-500">(dd/mm/yyyy HH:mm)</span>
               </label>
-              <input
-                type="datetime-local"
+              <DateTimeInput
                 required
                 value={recurringFormData.startDate}
-                onChange={(e) => setRecurringFormData({ ...recurringFormData, startDate: e.target.value })}
+                onChange={(value) => setRecurringFormData({ ...recurringFormData, startDate: value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Ngày kết thúc *
+                Ngày kết thúc * <span className="text-xs font-normal text-gray-500">(dd/mm/yyyy HH:mm)</span>
               </label>
-              <input
-                type="datetime-local"
+              <DateTimeInput
                 required
                 value={recurringFormData.endDate}
-                onChange={(e) => setRecurringFormData({ ...recurringFormData, endDate: e.target.value })}
+                onChange={(value) => setRecurringFormData({ ...recurringFormData, endDate: value })}
                 min={recurringFormData.startDate || ''}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />

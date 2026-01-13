@@ -15,3 +15,37 @@ body {
   min-height: 100vh;
 }
 
+/* Override chatbot z-index to ensure our dropdowns are visible */
+/* Chatbot is injected from external script, so we need high z-index for dropdowns */
+
+/* Force 24-hour format for time inputs */
+input[type="time"] {
+  color-scheme: light;
+  -webkit-appearance: none;
+  -moz-appearance: textfield;
+}
+
+/* Hide AM/PM field in Chrome/Edge */
+input[type="time"]::-webkit-datetime-edit-ampm-field {
+  display: none;
+}
+
+/* Ensure 24-hour format display */
+input[type="time"]::-webkit-datetime-edit-hour-field,
+input[type="time"]::-webkit-datetime-edit-minute-field {
+  -webkit-appearance: none;
+  display: inline-block;
+  width: auto;
+}
+
+/* Hide AM/PM in Firefox */
+input[type="time"]::-moz-datetime-edit-ampm-field {
+  display: none;
+}
+
+/* Calendar picker indicator */
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0);
+  cursor: pointer;
+}
+

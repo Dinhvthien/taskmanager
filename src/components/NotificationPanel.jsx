@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { BellIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import notificationService from '../services/notificationService'
+import websocketService from '../services/websocketService'
+import { getCurrentUser } from '../utils/auth'
+import { formatDate } from '../utils/dateFormat'
 
 const NotificationPanel = () => {
   const navigate = useNavigate()
@@ -14,7 +17,14 @@ const NotificationPanel = () => {
   const [totalPages, setTotalPages] = useState(1)
   const [totalElements, setTotalElements] = useState(0)
   const panelRef = useRef(null)
+  const isOpenRef = useRef(isOpen)
+  const subscriptionKeyRef = useRef(null) // Lưu subscription key để cleanup
   const pageSize = 10 // Số thông báo mỗi trang
+
+  // Cập nhật ref khi isOpen thay đổi
+  useEffect(() => {
+    isOpenRef.current = isOpen
+  }, [isOpen])
 
   // Xác định basePath theo role hiện tại
   const getBasePath = () => {
@@ -28,12 +38,72 @@ const NotificationPanel = () => {
   useEffect(() => {
     loadUnreadCount()
     
-    // Polling để cập nhật số lượng thông báo chưa đọc mỗi 5 giây
+    // WebSocket subscription cho real-time notifications
+    const setupWebSocket = async () => {
+      try {
+        // Unsubscribe subscription cũ nếu có (tránh duplicate khi component re-mount)
+        if (subscriptionKeyRef.current) {
+          websocketService.unsubscribe(subscriptionKeyRef.current)
+          subscriptionKeyRef.current = null
+        }
+
+        const user = getCurrentUser()
+        if (!user || !user.userId) {
+          return
+        }
+
+        // Xác định channel dựa trên role
+        const roles = user.roles || []
+        const isDirector = roles.includes('DIRECTOR') || roles.includes('SUPER_ADMIN')
+        
+        let topic
+        if (isDirector && user.directorId) {
+          // Director subscribe vào director channel
+          topic = `/topic/director/${user.directorId}/notifications`
+        } else {
+          // User thường subscribe vào user channel
+          topic = `/topic/user/${user.userId}/notifications`
+        }
+
+        // Kết nối WebSocket nếu chưa kết nối
+        if (!websocketService.isConnectedToServer()) {
+          await websocketService.connect()
+        }
+
+        // Subscribe vào notification channel
+        subscriptionKeyRef.current = await websocketService.subscribe(topic, (notification) => {
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Received new notification via WebSocket:', notification)
+          }
+          
+          // Cập nhật unread count
+          setUnreadCount(prev => prev + 1)
+          
+          // Nếu panel đang mở, reload notifications để hiển thị thông báo mới
+          if (isOpenRef.current) {
+            loadNotifications()
+          }
+        })
+      } catch (error) {
+        console.error('Error setting up WebSocket subscription for notifications:', error)
+      }
+    }
+
+    setupWebSocket()
+
+    // Fallback: Polling để cập nhật số lượng thông báo chưa đọc mỗi 30 giây (giảm tần suất vì đã có WebSocket)
     const interval = setInterval(() => {
       loadUnreadCount()
-    }, 5000)
+    }, 30000) // Tăng lên 30 giây vì đã có WebSocket real-time
     
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      if (subscriptionKeyRef.current) {
+        websocketService.unsubscribe(subscriptionKeyRef.current)
+        subscriptionKeyRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -151,7 +221,7 @@ const NotificationPanel = () => {
     if (minutes < 60) return `${minutes} phút trước`
     if (hours < 24) return `${hours} giờ trước`
     if (days < 7) return `${days} ngày trước`
-    return date.toLocaleDateString('vi-VN')
+    return formatDate(date)
   }
 
   const getNotificationIcon = (type) => {
@@ -246,7 +316,7 @@ const NotificationPanel = () => {
   }
 
   return (
-    <div className="relative z-50" ref={panelRef}>
+    <div className="relative z-[99999]" ref={panelRef}>
       {/* Notification Bell Button */}
       <button
         onClick={handleTogglePanel}
@@ -264,7 +334,7 @@ const NotificationPanel = () => {
 
       {/* Notification Panel */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-96 max-w-sm bg-white rounded-lg shadow-xl border border-gray-200 z-[100] max-h-[calc(100vh-8rem)] sm:max-h-[600px] flex flex-col">
+        <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-96 max-w-sm bg-white rounded-lg shadow-xl border border-gray-200 z-[99999] max-h-[calc(100vh-8rem)] sm:max-h-[600px] flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between p-3 sm:p-4 border-b border-gray-200">
             <h3 className="text-base sm:text-lg font-semibold text-gray-900">

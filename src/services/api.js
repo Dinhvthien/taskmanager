@@ -26,6 +26,9 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Không log 404 errors cho download attachment requests (file not found là expected)
+    const isDownloadAttachment = error.config?.url?.includes('/attachments/') && error.config?.url?.includes('/download')
+    
     if (error.response?.status === 401) {
       // Xử lý khi token hết hạn hoặc không hợp lệ
       localStorage.removeItem('token')
@@ -38,6 +41,9 @@ api.interceptors.response.use(
         console.error('Forbidden:', message)
       }
       // Có thể hiển thị toast notification hoặc redirect
+    } else if (error.response?.status === 404 && isDownloadAttachment) {
+      // Suppress 404 errors cho download attachment (file có thể đã bị xóa)
+      // Error sẽ được handle ở component level
     }
     return Promise.reject(error)
   }

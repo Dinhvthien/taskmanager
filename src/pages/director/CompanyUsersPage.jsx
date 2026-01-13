@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { userService } from '../../services/userService'
 import { directorService } from '../../services/directorService'
 import { departmentService } from '../../services/departmentService'
@@ -8,7 +9,9 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import Modal from '../../components/Modal'
 import Pagination from '../../components/Pagination'
 
-const CompanyUsersPage = () => {
+const CompanyUsersPage = ({ showDeleted = false }) => {
+  const location = useLocation()
+  const navigate = useNavigate()
   const [users, setUsers] = useState([])
   const [userDepartments, setUserDepartments] = useState({}) // Map userId -> departments[]
   const [director, setDirector] = useState(null)
@@ -36,6 +39,7 @@ const CompanyUsersPage = () => {
   const [isUpdatingDepartments, setIsUpdatingDepartments] = useState(false)
   const [openActionMenu, setOpenActionMenu] = useState(null) // userId của menu đang mở
   const [showDepartmentList, setShowDepartmentList] = useState(null) // userId để hiển thị danh sách phòng ban
+  const [searchTerm, setSearchTerm] = useState('')
   const [formData, setFormData] = useState({
     userName: '',
     password: '',
@@ -61,9 +65,21 @@ const CompanyUsersPage = () => {
   useEffect(() => {
     if (director) {
       loadUsers()
-      loadAllDepartments()
+      if (!showDeleted) {
+        loadAllDepartments()
+      }
     }
-  }, [director, currentPage])
+  }, [director, currentPage, showDeleted])
+
+  // Tự động mở modal khi có query parameter ?create=true
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search)
+    if (searchParams.get('create') === 'true') {
+      setShowAssignModal(true)
+      // Xóa query parameter từ URL
+      navigate(location.pathname, { replace: true })
+    }
+  }, [location.search, navigate, location.pathname])
 
   const loadDirector = async () => {
     try {
@@ -105,28 +121,44 @@ const CompanyUsersPage = () => {
 
     try {
       setLoading(true)
-      const response = await userService.getUsersByDirectorId(director.directorId, currentPage, 20)
+      
+      // Gọi API với query parameter deleted nếu là trang danh sách nhân viên bị xóa
+      const response = await userService.getUsersByDirectorId(
+        director.directorId, 
+        currentPage, 
+        20, 
+        showDeleted
+      )
+      
       const result = response.data.result
       const usersList = result.content || []
       setUsers(usersList)
       setTotalPages(result.totalPages || 1)
       
-      // Load departments for each user
-      const departmentsMap = {}
-      await Promise.all(
-        usersList.map(async (user) => {
-          try {
-            const deptResponse = await departmentService.getDepartmentsByUserId(user.userId)
-            departmentsMap[user.userId] = deptResponse.data.result || []
-          } catch (err) {
-            console.error(`Error loading departments for user ${user.userId}:`, err)
-            departmentsMap[user.userId] = []
-          }
-        })
-      )
-      setUserDepartments(departmentsMap)
+      // Load departments for each user (chỉ khi không phải deleted, vì deleted users có thể không còn department)
+      if (!showDeleted) {
+        const departmentsMap = {}
+        await Promise.all(
+          usersList.map(async (user) => {
+            try {
+              const deptResponse = await departmentService.getDepartmentsByUserId(user.userId)
+              departmentsMap[user.userId] = deptResponse.data.result || []
+            } catch (err) {
+              console.error(`Error loading departments for user ${user.userId}:`, err)
+              departmentsMap[user.userId] = []
+            }
+          })
+        )
+        setUserDepartments(departmentsMap)
+      } else {
+        // Với deleted users, không load departments
+        setUserDepartments({})
+      }
     } catch (err) {
+      console.error('Error loading users:', err)
       setError(err.response?.data?.message || 'Lỗi khi tải danh sách users')
+      setUsers([])
+      setUserDepartments({})
     } finally {
       setLoading(false)
     }
@@ -375,6 +407,21 @@ const CompanyUsersPage = () => {
     }
   }
 
+  const handleRestoreUser = async (user) => {
+    if (!director) return
+    if (!window.confirm(`Bạn có chắc chắn muốn khôi phục ${user.fullName} về nhân viên bình thường?`)) {
+      return
+    }
+
+    try {
+      setError('')
+      await directorService.addUserToDirector(director.directorId, user.userId)
+      loadUsers()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi khôi phục nhân viên')
+    }
+  }
+
   const handleManageDepartments = (user) => {
     setSelectedUserForDepartment(user)
     const departments = userDepartments[user.userId] || []
@@ -469,29 +516,92 @@ const CompanyUsersPage = () => {
 
   if (loading && users.length === 0) return <LoadingSpinner />
 
+  // Filter users based on search term
+  const filteredUsers = users.filter(user => {
+    if (!searchTerm.trim()) return true
+    
+    const searchLower = searchTerm.toLowerCase().trim()
+    const fullName = (user.fullName || '').toLowerCase()
+    const email = (user.email || '').toLowerCase()
+    const phoneNumber = (user.phoneNumber || '').toLowerCase()
+    
+    return fullName.includes(searchLower) || 
+           email.includes(searchLower) || 
+           phoneNumber.includes(searchLower)
+  })
+
   return (
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Quản lý nhân viên</h1>
-        <p className="text-sm sm:text-base text-gray-600">Quản lý thông tin và phân quyền nhân viên trong công ty</p>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
+          {showDeleted ? 'Danh sách nhân viên bị xóa' : 'Quản lý nhân viên'}
+        </h1>
+        <p className="text-sm sm:text-base text-gray-600">
+          {showDeleted 
+            ? 'Xem danh sách các nhân viên đã bị xóa khỏi công ty' 
+            : 'Quản lý thông tin và phân quyền nhân viên trong công ty'}
+        </p>
       </div>
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 sm:mb-6 gap-3">
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-gray-600">
-            Tổng số nhân viên: <span className="font-semibold text-gray-900">{users.length}</span>
+        <div className="flex-1 max-w-md w-full">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Tìm kiếm theo tên, email hoặc số điện thoại..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full px-4 py-2 pl-10 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <svg
+              className="absolute left-3 top-2.5 h-5 w-5 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
-        <button
-          onClick={() => setShowAssignModal(true)}
-          className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-blue-700 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-md hover:shadow-lg font-semibold flex items-center justify-center space-x-2 text-sm sm:text-base"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          <span>Thêm nhân viên</span>
-        </button>
+        <div className="flex items-center gap-4">
+          {!searchTerm && (
+            <div className="text-sm text-gray-600 hidden sm:block">
+              Tổng số nhân viên: <span className="font-semibold text-gray-900">{users.length}</span>
+            </div>
+          )}
+          {searchTerm && (
+            <div className="text-sm text-blue-600 hidden sm:block">
+              Tìm thấy: <span className="font-semibold">{filteredUsers.length}</span> nhân viên
+            </div>
+          )}
+          {!showDeleted && (
+            <button
+              onClick={() => setShowAssignModal(true)}
+              className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-blue-700 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-md hover:shadow-lg font-semibold flex items-center justify-center space-x-2 text-sm sm:text-base"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              <span>Thêm nhân viên</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -506,7 +616,18 @@ const CompanyUsersPage = () => {
         <>
           {/* Mobile Card View */}
           <div className="md:hidden space-y-3">
-            {users.map((user) => {
+            {filteredUsers.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-gray-500">
+                  {searchTerm 
+                    ? `Không tìm thấy nhân viên nào phù hợp với từ khóa "${searchTerm}"` 
+                    : showDeleted 
+                      ? 'Chưa có nhân viên nào bị xóa' 
+                      : 'Chưa có nhân viên nào'}
+                </p>
+              </div>
+            ) : (
+              filteredUsers.map((user) => {
               const departments = userDepartments[user.userId] || []
               return (
                 <div
@@ -581,10 +702,10 @@ const CompanyUsersPage = () => {
                               {showDepartmentList === user.userId && (
                                 <>
                                   <div 
-                                    className="fixed inset-0 z-10" 
+                                    className="fixed inset-0 z-[99998]" 
                                     onClick={() => setShowDepartmentList(null)}
                                   />
-                                  <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-20 p-3">
+                                  <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-[99999] p-3">
                                     <div className="text-xs font-semibold text-gray-700 mb-2">Danh sách phòng ban:</div>
                                     <div className="space-y-1.5 max-h-48 overflow-y-auto">
                                       {departments.map((dept) => (
@@ -629,53 +750,79 @@ const CompanyUsersPage = () => {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center justify-end space-x-1.5 pt-2 border-t border-gray-200">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedUserForReport(user)
-                        setShowReportModal(true)
-                      }}
-                      className="flex items-center space-x-1 px-2 py-1 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors text-xs font-medium"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      <span>Xuất báo cáo</span>
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleEditUser(user)
-                      }}
-                      className="flex items-center space-x-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors text-xs font-medium"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                      <span>Chỉnh sửa</span>
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleRemoveUser(user)
-                      }}
-                      className="flex items-center space-x-1 px-2 py-1 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                      <span>Xóa</span>
-                    </button>
-                  </div>
+                  {!showDeleted && (
+                    <div className="flex items-center justify-end space-x-1.5 pt-2 border-t border-gray-200">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedUserForReport(user)
+                          setShowReportModal(true)
+                        }}
+                        className="flex items-center space-x-1 px-2 py-1 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors text-xs font-medium"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span>Xuất báo cáo</span>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleEditUser(user)
+                        }}
+                        className="flex items-center space-x-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors text-xs font-medium"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        <span>Chỉnh sửa</span>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleRemoveUser(user)
+                        }}
+                        className="flex items-center space-x-1 px-2 py-1 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        <span>Xóa</span>
+                      </button>
+                    </div>
+                  )}
+                  {showDeleted && (
+                    <div className="flex items-center justify-end space-x-1.5 pt-2 border-t border-gray-200">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleRestoreUser(user)
+                        }}
+                        className="flex items-center space-x-1 px-2 py-1 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors text-xs font-medium"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        <span>Khôi phục</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
-            })}
+              })
+            )}
           </div>
 
           {/* Desktop Table View */}
           <div className="hidden md:block bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
+            {searchTerm && filteredUsers.length > 0 && (
+              <div className="px-6 py-3 bg-blue-50 border-b border-blue-200">
+                <p className="text-sm text-blue-700">
+                  Tìm thấy <strong>{filteredUsers.length}</strong> nhân viên phù hợp với từ khóa "{searchTerm}"
+                </p>
+              </div>
+            )}
+            <div className="overflow-x-auto overflow-y-visible pb-20">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
                   <tr>
@@ -703,21 +850,30 @@ const CompanyUsersPage = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {users.length === 0 ? (
+                  {filteredUsers.length === 0 ? (
                     <tr>
                       <td colSpan="7" className="px-6 py-12 text-center">
                         <div className="flex flex-col items-center justify-center">
                           <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
                           </svg>
-                          <p className="text-gray-500 text-sm font-medium">Chưa có nhân viên nào</p>
-                          <p className="text-gray-400 text-xs mt-1">Nhấn "Thêm nhân viên" để bắt đầu</p>
+                          <p className="text-gray-500 text-sm font-medium">
+                            {searchTerm 
+                              ? `Không tìm thấy nhân viên nào phù hợp với từ khóa "${searchTerm}"` 
+                              : showDeleted 
+                                ? 'Chưa có nhân viên nào bị xóa' 
+                                : 'Chưa có nhân viên nào'}
+                          </p>
+                          {!searchTerm && !showDeleted && (
+                            <p className="text-gray-400 text-xs mt-1">Nhấn "Thêm nhân viên" để bắt đầu</p>
+                          )}
                         </div>
                       </td>
                     </tr>
                   ) : (
-                    users.map((user) => {
+                    filteredUsers.map((user, index) => {
                       const departments = userDepartments[user.userId] || []
+                      const isLastRow = index === filteredUsers.length - 1
                       return (
                         <tr key={user.userId} className="hover:bg-blue-50/50 transition-colors">
                           <td className="px-6 py-4 whitespace-nowrap">
@@ -779,10 +935,10 @@ const CompanyUsersPage = () => {
                                         {showDepartmentList === user.userId && (
                                           <>
                                             <div 
-                                              className="fixed inset-0 z-10" 
+                                              className="fixed inset-0 z-[99998]" 
                                               onClick={() => setShowDepartmentList(null)}
                                             />
-                                            <div className="absolute left-0 top-full mt-1 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-20 p-3">
+                                            <div className="absolute left-0 top-full mt-1 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-[99999] p-3">
                                               <div className="text-xs font-semibold text-gray-700 mb-2">Danh sách phòng ban:</div>
                                               <div className="space-y-1.5 max-h-48 overflow-y-auto">
                                                 {departments.map((dept) => (
@@ -828,64 +984,82 @@ const CompanyUsersPage = () => {
                                 {openActionMenu === user.userId && (
                                   <>
                                     <div 
-                                      className="fixed inset-0 z-10" 
+                                      className="fixed inset-0 z-[99998]" 
                                       onClick={() => setOpenActionMenu(null)}
                                     />
-                                    <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-20 py-1">
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          setSelectedUserForReport(user)
-                                          setShowReportModal(true)
-                                          setOpenActionMenu(null)
-                                        }}
-                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
-                                      >
-                                        <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                        </svg>
-                                        <span>Xuất báo cáo</span>
-                                      </button>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          handleEditUser(user)
-                                          setOpenActionMenu(null)
-                                        }}
-                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
-                                      >
-                                        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                        </svg>
-                                        <span>Chỉnh sửa</span>
-                                      </button>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          handleManageDepartments(user)
-                                          setOpenActionMenu(null)
-                                        }}
-                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
-                                      >
-                                        <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                        </svg>
-                                        <span>Quản lý phòng ban</span>
-                                      </button>
-                                      <div className="border-t border-gray-200 my-1"></div>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          handleRemoveUser(user)
-                                          setOpenActionMenu(null)
-                                        }}
-                                        className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                        <span>Xóa</span>
-                                      </button>
+                                    <div className={`absolute right-0 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-[99999] ${isLastRow ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+                                      {!showDeleted ? (
+                                        <>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              setSelectedUserForReport(user)
+                                              setShowReportModal(true)
+                                              setOpenActionMenu(null)
+                                            }}
+                                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                          >
+                                            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                            </svg>
+                                            <span>Xuất báo cáo</span>
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              handleEditUser(user)
+                                              setOpenActionMenu(null)
+                                            }}
+                                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                          >
+                                            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                            </svg>
+                                            <span>Chỉnh sửa</span>
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              handleManageDepartments(user)
+                                              setOpenActionMenu(null)
+                                            }}
+                                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                          >
+                                            <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                            </svg>
+                                            <span>Quản lý phòng ban</span>
+                                          </button>
+                                          <div className="border-t border-gray-200 my-1"></div>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              handleRemoveUser(user)
+                                              setOpenActionMenu(null)
+                                            }}
+                                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
+                                          >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                            </svg>
+                                            <span>Xóa</span>
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleRestoreUser(user)
+                                            setOpenActionMenu(null)
+                                          }}
+                                          className="w-full text-left px-4 py-2 text-sm text-green-600 hover:bg-green-50 flex items-center space-x-2"
+                                        >
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                          </svg>
+                                          <span>Khôi phục</span>
+                                        </button>
+                                      )}
                                     </div>
                                   </>
                                 )}

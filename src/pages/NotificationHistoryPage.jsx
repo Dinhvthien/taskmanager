@@ -4,6 +4,7 @@ import { BellIcon, TrashIcon, CheckIcon } from '@heroicons/react/24/outline'
 import notificationService from '../services/notificationService'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ErrorMessage from '../components/ErrorMessage'
+import { formatDateTime } from '../utils/dateFormat'
 
 const NotificationHistoryPage = () => {
   const navigate = useNavigate()
@@ -159,13 +160,7 @@ const NotificationHistoryPage = () => {
     if (minutes < 60) return `${minutes} phút trước`
     if (hours < 24) return `${hours} giờ trước`
     if (days < 7) return `${days} ngày trước`
-    return date.toLocaleDateString('vi-VN', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    return formatDateTime(date)
   }
 
   const getNotificationIcon = (type) => {

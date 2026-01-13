@@ -6,6 +6,8 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorMessage from '../../components/ErrorMessage'
 import WorkTimeline from '../../components/WorkTimeline'
 import { EyeIcon, CalendarIcon } from '@heroicons/react/24/outline'
+import { formatDate, formatDateTime } from '../../utils/dateFormat'
+import DateInput from '../../components/DateInput'
 
 const ScheduleRegistrationsPage = () => {
   const [loading, setLoading] = useState(false)
@@ -228,10 +230,9 @@ const ScheduleRegistrationsPage = () => {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Chọn ngày
             </label>
-            <input
-              type="date"
+            <DateInput
               value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
+              onChange={(value) => setSelectedDate(value)}
               max={new Date().toISOString().split('T')[0]}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
@@ -277,7 +278,7 @@ const ScheduleRegistrationsPage = () => {
                       )}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
-                      Đăng ký lúc: {new Date(registration.createdAt).toLocaleString('vi-VN')}
+                      Đăng ký lúc: {formatDateTime(registration.createdAt)}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -393,8 +394,8 @@ const ScheduleRegistrationsPage = () => {
           <div className="bg-white rounded-lg shadow-md p-8 text-center">
             <p className="text-gray-500">
               {selectedUserId
-                ? `Nhân viên được chọn chưa có đăng ký lịch làm việc cho ngày ${new Date(selectedDate).toLocaleDateString('vi-VN')}`
-                : `Không có đăng ký lịch làm việc nào cho ngày ${new Date(selectedDate).toLocaleDateString('vi-VN')}`
+                ? `Nhân viên được chọn chưa có đăng ký lịch làm việc cho ngày ${formatDate(selectedDate)}`
+                : `Không có đăng ký lịch làm việc nào cho ngày ${formatDate(selectedDate)}`
               }
             </p>
           </div>

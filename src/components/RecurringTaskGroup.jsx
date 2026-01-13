@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TASK_STATUS_LABELS, TASK_STATUS_COLORS } from '../utils/constants'
+import { formatDateTime } from '../utils/dateFormat'
 
 const RecurringTaskGroup = ({ recurringTask, tasks, onEdit, onDeactivate, onActivate, onDelete }) => {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -23,15 +24,9 @@ const RecurringTaskGroup = ({ recurringTask, tasks, onEdit, onDeactivate, onActi
   const startDate = tasks.length > 0 ? new Date(Math.min(...tasks.map(t => new Date(t.startDate).getTime()))) : null
   const endDate = tasks.length > 0 ? new Date(Math.max(...tasks.map(t => new Date(t.endDate).getTime()))) : null
 
-  const formatDate = (date) => {
+  const formatDateLocal = (date) => {
     if (!date) return 'N/A'
-    return date.toLocaleDateString('vi-VN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    return formatDateTime(date)
   }
 
   return (
@@ -130,7 +125,7 @@ const RecurringTaskGroup = ({ recurringTask, tasks, onEdit, onDeactivate, onActi
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
-                  <span>{formatDate(startDate)} - {formatDate(endDate)}</span>
+                  <span>{formatDateLocal(startDate)} - {formatDateLocal(endDate)}</span>
                 </div>
               )}
             </div>
@@ -220,7 +215,7 @@ const RecurringTaskGroup = ({ recurringTask, tasks, onEdit, onDeactivate, onActi
                       </div>
                       <div className="flex items-center space-x-4 text-xs">
                         <span className={isOverdue ? 'text-gray-300' : 'text-gray-600'}>
-                          {formatDate(new Date(task.startDate))} - {formatDate(new Date(task.endDate))}
+                          {formatDateLocal(new Date(task.startDate))} - {formatDateLocal(new Date(task.endDate))}
                         </span>
                         <div className="flex items-center space-x-2">
                           <div className="w-16 bg-gray-200 rounded-full h-1.5">

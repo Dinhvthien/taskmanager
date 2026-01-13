@@ -1,16 +1,9 @@
 import { ROLE_LABELS } from '../utils/constants'
+import { formatDate } from '../utils/dateFormat'
 
 const UserCard = ({ user, onEdit, onDelete, showActions = true }) => {
   if (!user) return null
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A'
-    try {
-      return new Date(dateString).toLocaleDateString('vi-VN')
-    } catch {
-      return 'N/A'
-    }
-  }
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow border border-gray-200">

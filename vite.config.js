@@ -4,6 +4,10 @@ import react from '@vitejs/plugin-react'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  define: {
+    // Polyfill cho sockjs-client - định nghĩa global = window trong browser
+    global: 'globalThis',
+  },
   server: {
     port: 3000,
     // Proxy chỉ dùng cho development, không ảnh hưởng production build
@@ -13,6 +17,14 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path, // Giữ nguyên path vì backend đã có context-path /api
+      },
+      // Proxy cho WebSocket
+      '/ws': {
+        target: process.env.VITE_API_BASE_URL || 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
+        ws: true, // Enable WebSocket proxy
+        rewrite: (path) => path,
       }
     }
   },

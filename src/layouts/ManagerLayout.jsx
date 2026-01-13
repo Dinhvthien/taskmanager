@@ -17,7 +17,8 @@ import {
   ChevronRightIcon,
   CalendarDaysIcon,
   UserCircleIcon,
-  ChevronLeftIcon
+  ChevronLeftIcon,
+  ChatBubbleLeftRightIcon
 } from '@heroicons/react/24/outline'
 import Logo from '../components/Logo'
 import NotificationPanel from '../components/NotificationPanel'
@@ -60,6 +61,7 @@ const ManagerLayout = () => {
     { name: 'Công việc phòng ban', href: '/manager/tasks', icon: ClipboardDocumentListIcon },
     { name: 'Nhân viên phòng ban', href: '/manager/users', icon: UsersIcon },
     { name: 'Báo cáo phòng ban', href: '/manager/reports', icon: ChartBarIcon },
+    { name: 'Tin nhắn', href: '/manager/messaging', icon: ChatBubbleLeftRightIcon },
   ]
 
   const [workScheduleMenuOpen, setWorkScheduleMenuOpen] = useState(false)
@@ -67,10 +69,11 @@ const ManagerLayout = () => {
   const workScheduleSubMenu = [
     { name: 'Đăng ký lịch làm', href: '/manager/daily-report?mode=register' },
     { name: 'Báo cáo cuối ngày', href: '/manager/daily-report?mode=report' },
+    { name: 'Lịch sử báo cáo', href: '/manager/daily-report/history' },
   ]
 
   // Kiểm tra xem có đang ở trong menu lịch làm việc không
-  const isWorkScheduleActive = location.pathname === '/manager/daily-report'
+  const isWorkScheduleActive = location.pathname === '/manager/daily-report' || location.pathname === '/manager/daily-report/history'
 
   // Tự động mở submenu khi đang ở trang lịch làm việc
   useEffect(() => {
@@ -205,10 +208,15 @@ const ManagerLayout = () => {
               {workScheduleMenuOpen && !sidebarCollapsed && (
                 <div className="ml-2 sm:ml-4 mt-1 space-y-1">
                   {workScheduleSubMenu.map((subItem) => {
-                    const subActive = location.pathname === subItem.href.split('?')[0] && 
-                                     (location.search.includes('mode=register') && subItem.href.includes('mode=register') ||
-                                      location.search.includes('mode=report') && subItem.href.includes('mode=report') ||
-                                      !location.search && subItem.href.includes('mode=register'))
+                    let subActive = false
+                    if (subItem.href.includes('/history')) {
+                      subActive = location.pathname === '/manager/daily-report/history'
+                    } else {
+                      subActive = location.pathname === subItem.href.split('?')[0] && 
+                                   (location.search.includes('mode=register') && subItem.href.includes('mode=register') ||
+                                    location.search.includes('mode=report') && subItem.href.includes('mode=report') ||
+                                    !location.search && subItem.href.includes('mode=register'))
+                    }
                     return (
                       <Link
                         key={subItem.name}

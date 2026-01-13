@@ -86,6 +86,34 @@ const dailyReportService = {
     return api.get('/daily-reports/director/employees-statistics', {
       params: { date }
     })
+  },
+  
+  // Lấy thống kê chi tiết báo cáo nhân viên theo khoảng thời gian (cho Director)
+  getEmployeesStatisticsByDateRange: (startDate, endDate) => {
+    return api.get('/daily-reports/director/employees-statistics/range', {
+      params: { startDate, endDate }
+    })
+  },
+  
+  // Lấy thống kê xếp hạng phòng ban theo khoảng thời gian (cho Director)
+  getDepartmentsStatisticsByDateRange: (startDate, endDate) => {
+    return api.get('/daily-reports/director/departments-statistics/range', {
+      params: { startDate, endDate }
+    })
+  },
+  
+  // Lấy thống kê xếp hạng nhân viên trong phòng ban theo khoảng thời gian (cho Director)
+  getDepartmentEmployeesStatisticsByDateRange: (departmentId, startDate, endDate) => {
+    return api.get(`/daily-reports/director/departments/${departmentId}/employees-statistics/range`, {
+      params: { startDate, endDate }
+    })
+  },
+  
+  // Lấy lịch sử báo cáo của phòng ban theo khoảng thời gian (cho Director)
+  getDepartmentReportHistory: (departmentId, startDate, endDate) => {
+    return api.get(`/daily-reports/director/departments/${departmentId}/report-history`, {
+      params: { startDate, endDate }
+    })
   }
 }
 

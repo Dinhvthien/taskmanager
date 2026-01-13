@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { TASK_STATUS_LABELS, TASK_STATUS_COLORS } from '../utils/constants'
+import { formatDateTime } from '../utils/dateFormat'
 
 const TaskCard = ({ task, basePath = '/user' }) => {
   const navigate = useNavigate()
@@ -18,15 +19,9 @@ const TaskCard = ({ task, basePath = '/user' }) => {
     )
   }
 
-  const formatDate = (dateString) => {
+  const formatDateLocal = (dateString) => {
     if (!dateString) return 'N/A'
-    return new Date(dateString).toLocaleDateString('vi-VN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    return formatDateTime(dateString)
   }
 
   // Kiểm tra task có sắp hết deadline hoặc quá deadline không
@@ -124,12 +119,12 @@ const TaskCard = ({ task, basePath = '/user' }) => {
         <div className="grid grid-cols-2 gap-2">
           <div>
             <span className="font-medium">Bắt đầu:</span>
-            <span className="ml-2">{formatDate(task.startDate)}</span>
+            <span className="ml-2">{formatDateLocal(task.startDate)}</span>
           </div>
           <div>
             <span className="font-medium">Kết thúc:</span>
             <span className={`ml-2 ${!task.endDate || task.status === 'COMPLETED' ? '' : (new Date(task.endDate) < new Date() || (new Date(task.endDate) <= new Date(new Date().getTime() + 6 * 60 * 60 * 1000) && new Date(task.endDate) > new Date()) ? 'text-red-300 font-bold' : '')}`}>
-              {formatDate(task.endDate)}
+              {formatDateLocal(task.endDate)}
             </span>
           </div>
         </div>
@@ -167,7 +162,7 @@ const TaskCard = ({ task, basePath = '/user' }) => {
         {task.completedAt && (
           <div className={cardStyle === 'bg-gray-900' ? 'text-green-300' : 'text-green-600'}>
             <span className="font-medium">Hoàn thành:</span>
-            <span className="ml-2">{formatDate(task.completedAt)}</span>
+            <span className="ml-2">{formatDateLocal(task.completedAt)}</span>
           </div>
         )}
       </div>

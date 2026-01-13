@@ -6,6 +6,8 @@ import dailyReportService, { directorEvaluationService } from '../../services/da
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorMessage from '../../components/ErrorMessage'
 import WorkTimeline from '../../components/WorkTimeline'
+import { formatDate, formatTime } from '../../utils/dateFormat'
+import DateInput from '../../components/DateInput'
 
 const EmployeeReportsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -41,6 +43,11 @@ const EmployeeReportsPage = () => {
   }
 
   useEffect(() => {
+    loadUsers()
+  }, [])
+  
+  useEffect(() => {
+    // Đọc URL params và cập nhật state
     const userIdParam = searchParams.get('userId')
     const dateParam = searchParams.get('date')
     
@@ -48,34 +55,16 @@ const EmployeeReportsPage = () => {
       setReportDate(dateParam)
     }
     
-    loadUsers().then(() => {
-      // After users are loaded, check URL params
-      if (userIdParam) {
-        const userId = parseInt(userIdParam)
-        setSelectedUserId(userId)
-        // Find user and set search query
-        setTimeout(() => {
-          const user = users.find(u => u.userId === userId)
-          if (user) {
-            setSearchQuery(`${user.fullName} (${user.email})`)
-          }
-        }, 100)
-      }
-    })
-  }, [])
-  
-  useEffect(() => {
-    // Update selected user when users are loaded and URL has userId param
-    const userIdParam = searchParams.get('userId')
+    // Chỉ xử lý userIdParam khi users đã load xong
     if (userIdParam && users.length > 0) {
       const userId = parseInt(userIdParam)
       const user = users.find(u => u.userId === userId)
-      if (user && !selectedUserId) {
+      if (user) {
         setSelectedUserId(userId)
         setSearchQuery(`${user.fullName} (${user.email})`)
       }
     }
-  }, [users])
+  }, [searchParams, users])
 
   useEffect(() => {
     if (selectedUserId && reportDate) {
@@ -336,10 +325,9 @@ const EmployeeReportsPage = () => {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Ngày báo cáo
             </label>
-            <input
-              type="date"
+            <DateInput
               value={reportDate}
-              onChange={(e) => setReportDate(e.target.value)}
+              onChange={(value) => setReportDate(value)}
               max={new Date().toISOString().split('T')[0]}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
@@ -358,7 +346,7 @@ const EmployeeReportsPage = () => {
               <div className="space-y-4">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-semibold text-gray-900">
-                    Báo cáo ngày {new Date(reportDate).toLocaleDateString('vi-VN')}
+                    Báo cáo ngày {formatDate(reportDate)}
                     {selectedUser && (
                       <span className="text-lg font-normal text-gray-600 ml-2">
                         - {selectedUser.fullName} {selectedUser.email ? `(${selectedUser.email})` : ''}
@@ -375,7 +363,7 @@ const EmployeeReportsPage = () => {
                         className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-sm font-medium text-gray-700"
                       >
                         {reports.map((r, index) => {
-                          const timeStr = new Date(r.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                          const timeStr = formatTime(r.createdAt)
                           const label = index === 0 
                             ? `Báo cáo mới nhất - ${timeStr}` 
                             : `Báo cáo #${reports.length - index} - ${timeStr}`

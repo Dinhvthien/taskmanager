@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Modal from './Modal'
+import DateTimeInput from './DateTimeInput'
 import { departmentService } from '../services/departmentService'
 import { directorService } from '../services/directorService'
 import { userService } from '../services/userService'
@@ -285,20 +286,19 @@ const EditTaskModal = ({ isOpen, onClose, task, onUpdate }) => {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Ngày bắt đầu *
+              Ngày bắt đầu * <span className="text-xs font-normal text-gray-500">(dd/mm/yyyy HH:mm)</span>
             </label>
-            <input
-              type="datetime-local"
+            <DateTimeInput
               required
               value={formData.startDate}
-              onChange={(e) => {
-                setFormData({ ...formData, startDate: e.target.value })
+              onChange={(value) => {
+                setFormData({ ...formData, startDate: value })
                 if (validationErrors.startDate) {
                   setValidationErrors({ ...validationErrors, startDate: '' })
                 }
                 if (validationErrors.endDate && formData.endDate) {
                   const end = new Date(formData.endDate)
-                  const start = new Date(e.target.value)
+                  const start = new Date(value)
                   if (end > start) {
                     setValidationErrors({ ...validationErrors, endDate: '' })
                   }
@@ -314,14 +314,13 @@ const EditTaskModal = ({ isOpen, onClose, task, onUpdate }) => {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Ngày kết thúc *
+              Ngày kết thúc * <span className="text-xs font-normal text-gray-500">(dd/mm/yyyy HH:mm)</span>
             </label>
-            <input
-              type="datetime-local"
+            <DateTimeInput
               required
               value={formData.endDate}
-              onChange={(e) => {
-                setFormData({ ...formData, endDate: e.target.value })
+              onChange={(value) => {
+                setFormData({ ...formData, endDate: value })
                 if (validationErrors.endDate) {
                   setValidationErrors({ ...validationErrors, endDate: '' })
                 }

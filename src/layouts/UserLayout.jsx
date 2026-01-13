@@ -13,7 +13,8 @@ import {
   CalendarDaysIcon,
   UserCircleIcon,
   BuildingOfficeIcon,
-  ChevronLeftIcon
+  ChevronLeftIcon,
+  ChatBubbleLeftRightIcon
 } from '@heroicons/react/24/outline'
 import Logo from '../components/Logo'
 import NotificationPanel from '../components/NotificationPanel'
@@ -54,15 +55,17 @@ const UserLayout = () => {
 
   const navigation = [
     { name: 'Tasks của tôi', href: '/user/tasks', icon: ClipboardDocumentListIcon },
+    { name: 'Tin nhắn', href: '/user/messaging', icon: ChatBubbleLeftRightIcon },
   ]
 
   const workScheduleSubMenu = [
     { name: 'Đăng ký lịch làm', href: '/user/daily-report?mode=register' },
     { name: 'Báo cáo cuối ngày', href: '/user/daily-report?mode=report' },
+    { name: 'Lịch sử báo cáo', href: '/user/daily-report/history' },
   ]
 
   // Kiểm tra xem có đang ở trong menu lịch làm việc không
-  const isWorkScheduleActive = location.pathname === '/user/daily-report'
+  const isWorkScheduleActive = location.pathname === '/user/daily-report' || location.pathname === '/user/daily-report/history'
 
   // Tự động mở submenu khi đang ở trang lịch làm việc
   useEffect(() => {
@@ -197,10 +200,15 @@ const UserLayout = () => {
               {workScheduleMenuOpen && !sidebarCollapsed && (
                 <div className="ml-2 sm:ml-4 mt-1 space-y-1">
                   {workScheduleSubMenu.map((subItem) => {
-                    const subActive = location.pathname === subItem.href.split('?')[0] && 
-                                     (location.search.includes('mode=register') && subItem.href.includes('mode=register') ||
-                                      location.search.includes('mode=report') && subItem.href.includes('mode=report') ||
-                                      !location.search && subItem.href.includes('mode=register'))
+                    let subActive = false
+                    if (subItem.href.includes('/history')) {
+                      subActive = location.pathname === '/user/daily-report/history'
+                    } else {
+                      subActive = location.pathname === subItem.href.split('?')[0] && 
+                                   (location.search.includes('mode=register') && subItem.href.includes('mode=register') ||
+                                    location.search.includes('mode=report') && subItem.href.includes('mode=report') ||
+                                    !location.search && subItem.href.includes('mode=register'))
+                    }
                     return (
                       <Link
                         key={subItem.name}
