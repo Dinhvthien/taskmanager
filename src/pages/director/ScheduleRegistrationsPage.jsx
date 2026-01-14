@@ -5,7 +5,7 @@ import dailyReportService from '../../services/dailyReportService'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorMessage from '../../components/ErrorMessage'
 import WorkTimeline from '../../components/WorkTimeline'
-import { EyeIcon, CalendarIcon } from '@heroicons/react/24/outline'
+import { EyeIcon, CalendarIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
 import { formatDate, formatDateTime } from '../../utils/dateFormat'
 import DateInput from '../../components/DateInput'
 
@@ -16,6 +16,7 @@ const ScheduleRegistrationsPage = () => {
   const [registrations, setRegistrations] = useState([]) // Danh sách đăng ký lịch làm việc
   const [error, setError] = useState('')
   const [expandedUserId, setExpandedUserId] = useState(null) // User ID đang được mở rộng để xem chi tiết
+  const [selectedReportIdByUser, setSelectedReportIdByUser] = useState({}) // Map userId -> reportId được chọn để hiển thị
   const [filteredUsers, setFilteredUsers] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedUserId, setSelectedUserId] = useState(null)
@@ -102,7 +103,7 @@ const ScheduleRegistrationsPage = () => {
       setLoading(true)
       setError('')
       
-      // Lấy đăng ký lịch làm việc (báo cáo chưa gửi) của tất cả nhân viên
+      // Lấy TẤT CẢ các báo cáo (cả đã gửi và chưa gửi) của tất cả nhân viên trong ngày
       const registrationsList = []
       
       for (const user of users) {
@@ -110,20 +111,20 @@ const ScheduleRegistrationsPage = () => {
           const response = await dailyReportService.getAllDailyReportsByUserId(user.userId, selectedDate)
           const allReports = response.data.result || []
           
-          // Lọc các báo cáo chưa gửi (chưa có comment)
-          const unsentReports = allReports.filter(report => !isReportSent(report))
+          // Sắp xếp theo thời gian tạo (mới nhất trước)
+          const sortedReports = allReports.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
           
-          if (unsentReports.length > 0) {
-            // Lấy báo cáo chưa gửi mới nhất
-            const latestUnsentReport = unsentReports.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]
-            
+          // Thêm TẤT CẢ các báo cáo vào danh sách (mỗi báo cáo là một item riêng)
+          sortedReports.forEach((report) => {
             registrationsList.push({
+              reportId: report.reportId, // Dùng reportId làm key duy nhất
               userId: user.userId,
               user: user,
-              report: latestUnsentReport,
-              createdAt: latestUnsentReport.createdAt
+              report: report,
+              createdAt: report.createdAt,
+              isSent: isReportSent(report) // Đánh dấu báo cáo đã gửi hay chưa
             })
-          }
+          })
         } catch (err) {
           // Bỏ qua lỗi của từng user, tiếp tục với user khác
           if (process.env.NODE_ENV === 'development') {
@@ -145,6 +146,14 @@ const ScheduleRegistrationsPage = () => {
 
   const toggleExpand = (userId) => {
     setExpandedUserId(expandedUserId === userId ? null : userId)
+  }
+  
+  // Chọn báo cáo để hiển thị cho một nhân viên
+  const handleSelectReport = (userId, reportId) => {
+    setSelectedReportIdByUser(prev => ({
+      ...prev,
+      [userId]: reportId
+    }))
   }
 
   // Chuẩn bị dữ liệu cho timeline
@@ -257,42 +266,116 @@ const ScheduleRegistrationsPage = () => {
           ? registrations.filter(reg => reg.userId === selectedUserId)
           : registrations
 
-        return filteredRegistrations.length > 0 ? (
+        // Nhóm các báo cáo theo userId
+        const groupedByUser = filteredRegistrations.reduce((acc, registration) => {
+          if (!acc[registration.userId]) {
+            acc[registration.userId] = {
+              user: registration.user,
+              reports: []
+            }
+          }
+          acc[registration.userId].reports.push(registration)
+          // Sắp xếp reports theo thời gian tạo (mới nhất trước)
+          acc[registration.userId].reports.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+          return acc
+        }, {})
+        
+        const groupedList = Object.values(groupedByUser)
+
+        return groupedList.length > 0 ? (
           <div className="space-y-4">
-            {filteredRegistrations.map((registration) => {
-            const { tasks, adHocTasks } = prepareTimelineData(registration.report)
-            const isExpanded = expandedUserId === registration.userId
+            {groupedList.map((group) => {
+            const userReports = group.reports
+            const userId = group.user.userId
+            const isExpanded = expandedUserId === userId
+            
+            // Lấy báo cáo được chọn (hoặc báo cáo đầu tiên nếu chưa chọn)
+            const selectedReportId = selectedReportIdByUser[userId] || userReports[0]?.reportId
+            const selectedReport = userReports.find(r => r.reportId === selectedReportId) || userReports[0]
+            
+            if (!selectedReport) return null
+            
+            const { tasks, adHocTasks } = prepareTimelineData(selectedReport.report)
             const hasTimeline = tasks.length > 0 || adHocTasks.length > 0
+            const hasMultipleReports = userReports.length > 1
 
             return (
-              <div key={registration.userId} className="bg-white rounded-lg shadow-md p-6">
+              <div key={userId} className={`bg-white rounded-lg shadow-md p-6 border-l-4 ${
+                selectedReport.isSent 
+                  ? 'border-green-500 bg-green-50/30' 
+                  : 'border-blue-500'
+              }`}>
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      {registration.user.fullName}
-                    </h3>
+                    <div className="flex items-center gap-3 mb-2 flex-wrap">
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        {group.user.fullName}
+                      </h3>
+                      {hasMultipleReports && (
+                        <span className="px-2 py-1 text-xs font-semibold bg-gray-100 text-gray-700 rounded-full">
+                          {userReports.length} báo cáo
+                        </span>
+                      )}
+                      {selectedReport.isSent ? (
+                        <span className="px-2 py-1 text-xs font-semibold bg-green-100 text-green-800 rounded-full">
+                          Đã gửi báo cáo
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 text-xs font-semibold bg-blue-100 text-blue-800 rounded-full">
+                          Chưa gửi báo cáo
+                        </span>
+                      )}
+                    </div>
                     <p className="text-sm text-gray-600 mt-1">
-                      {registration.user.email}
-                      {registration.user.department && (
-                        <span className="ml-2">• {registration.user.department.name}</span>
+                      {group.user.email}
+                      {group.user.department && (
+                        <span className="ml-2">• {group.user.department.name}</span>
                       )}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Đăng ký lúc: {formatDateTime(registration.createdAt)}
-                    </p>
+                    
+                    {/* Dropdown chọn báo cáo nếu có nhiều báo cáo */}
+                    {hasMultipleReports && (
+                      <div className="mt-3">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Chọn báo cáo để xem:
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={selectedReportId}
+                            onChange={(e) => handleSelectReport(userId, parseInt(e.target.value))}
+                            className="appearance-none w-full sm:w-auto min-w-[250px] px-4 py-2 pr-8 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                          >
+                            {userReports.map((report, index) => (
+                              <option key={report.reportId} value={report.reportId}>
+                                Báo cáo #{index + 1} - {report.isSent ? 'Đã gửi' : 'Chưa gửi'} ({formatDateTime(report.createdAt)})
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDownIcon className="absolute right-2 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {selectedReport.isSent ? 'Gửi báo cáo lúc' : 'Đăng ký lúc'}: {formatDateTime(selectedReport.createdAt)}
+                        </p>
+                      </div>
+                    )}
+                    {!hasMultipleReports && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {selectedReport.isSent ? 'Gửi báo cáo lúc' : 'Đăng ký lúc'}: {formatDateTime(selectedReport.createdAt)}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-right">
                       <div className="text-sm font-medium text-gray-900">
-                        {registration.report.selectedTasks?.length || 0} công việc
+                        {selectedReport.report.selectedTasks?.length || 0} công việc
                       </div>
                       <div className="text-xs text-gray-600">
-                        {registration.report.adHocTasks?.length || 0} công việc phát sinh
+                        {selectedReport.report.adHocTasks?.length || 0} công việc phát sinh
                       </div>
                     </div>
                     {hasTimeline && (
                       <button
-                        onClick={() => toggleExpand(registration.userId)}
+                        onClick={() => toggleExpand(userId)}
                         className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                       >
                         <EyeIcon className="h-4 w-4" />
@@ -318,13 +401,13 @@ const ScheduleRegistrationsPage = () => {
                 {isExpanded && (
                   <div className="mt-4 space-y-4">
                     {/* Công việc đã chọn */}
-                    {registration.report.selectedTasks && registration.report.selectedTasks.length > 0 && (
+                    {selectedReport.report.selectedTasks && selectedReport.report.selectedTasks.length > 0 && (
                       <div>
                         <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                          Công việc đã chọn ({registration.report.selectedTasks.length})
+                          Công việc đã chọn ({selectedReport.report.selectedTasks.length})
                         </h4>
                         <div className="space-y-2">
-                          {registration.report.selectedTasks.map((task, index) => (
+                          {selectedReport.report.selectedTasks.map((task, index) => (
                             <div key={task.taskId} className="border border-gray-200 rounded-lg p-3 bg-blue-50">
                               <div className="flex items-start justify-between">
                                 <div className="flex-1">
@@ -351,13 +434,13 @@ const ScheduleRegistrationsPage = () => {
                     )}
 
                     {/* Công việc phát sinh */}
-                    {registration.report.adHocTasks && registration.report.adHocTasks.length > 0 && (
+                    {selectedReport.report.adHocTasks && selectedReport.report.adHocTasks.length > 0 && (
                       <div>
                         <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                          Công việc phát sinh ({registration.report.adHocTasks.length})
+                          Công việc phát sinh ({selectedReport.report.adHocTasks.length})
                         </h4>
                         <div className="space-y-2">
-                          {registration.report.adHocTasks.map((task, index) => (
+                          {selectedReport.report.adHocTasks.map((task, index) => (
                             <div key={task.id} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
                               <div className="flex items-start justify-between">
                                 <div className="flex-1">
