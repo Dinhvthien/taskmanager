@@ -357,10 +357,10 @@ const AdHocTasksPage = () => {
                           <button
                             type="button"
                             onClick={() => handleQuickReject(task)}
-                            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 hover:shadow-lg hover:shadow-red-500/50 active:scale-95 transition-all duration-200"
+                            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-gray-600 rounded-lg hover:bg-gray-700 hover:shadow-lg hover:shadow-gray-500/50 active:scale-95 transition-all duration-200"
                           >
                             <XMarkIcon className="w-4 h-4" />
-                            Từ chối
+                            Hủy
                           </button>
                         </>
                       )}
@@ -378,8 +378,8 @@ const AdHocTasksPage = () => {
                           }}
                           className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-500/50 active:scale-95 transition-all duration-200"
                         >
-                          <PencilIcon className="w-4 h-4" />
-                          Xem lại
+                          <CheckIcon className="w-4 h-4" />
+                          Duyệt
                         </button>
                       )}
                     </div>
