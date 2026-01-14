@@ -512,6 +512,35 @@ const DepartmentTasksPage = () => {
                             </div>
                           )}
 
+                          {/* Người phụ trách */}
+                          {task.assignedUserNames && task.assignedUserNames.length > 0 && (
+                            <div className="flex items-center space-x-2">
+                              <svg className={`w-4 h-4 ${isOverdue ? 'text-gray-400' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                              </svg>
+                              <span className={`text-xs font-medium ${isOverdue ? 'text-gray-300' : 'text-gray-600'}`}>Người phụ trách:</span>
+                              <div className="flex flex-wrap gap-1">
+                                {task.assignedUserNames.slice(0, 3).map((userName, idx) => (
+                                  <span 
+                                    key={idx} 
+                                    className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                      isOverdue 
+                                        ? 'bg-purple-900 text-purple-100 border border-purple-700' 
+                                        : 'bg-purple-100 text-purple-800 border border-purple-200'
+                                    }`}
+                                  >
+                                    {userName}
+                                  </span>
+                                ))}
+                                {task.assignedUserNames.length > 3 && (
+                                  <span className={`px-2 py-1 text-xs font-medium ${isOverdue ? 'text-gray-300' : 'text-gray-600'}`}>
+                                    +{task.assignedUserNames.length - 3}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
                           {/* Thời gian */}
                           {task.startDate && task.endDate && (
                             <div className={`flex items-center space-x-2 ${isOverdue ? 'text-gray-300' : 'text-gray-600'}`}>
@@ -585,6 +614,15 @@ const DepartmentTasksPage = () => {
                           className="px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
                         >
                           Giao task
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            navigate(`${basePath}/tasks/${task.taskId}#comments`)
+                          }}
+                          className="px-3 py-1.5 text-sm font-medium text-orange-700 bg-orange-50 rounded-lg hover:bg-orange-100 transition-colors"
+                        >
+                          Bình luận
                         </button>
                         <button
                           onClick={(e) => {

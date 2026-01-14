@@ -337,7 +337,8 @@ const NotificationHistoryPage = () => {
                         <CheckIcon className="h-5 w-5" />
                       </button>
                     )}
-                    <button
+                    {/* Nút xóa đã bị vô hiệu hóa - không cho phép xóa thông báo */}
+                    {/* <button
                       onClick={(e) => {
                         e.stopPropagation()
                         handleDelete(notification.id)
@@ -347,7 +348,7 @@ const NotificationHistoryPage = () => {
                       title="Xóa thông báo"
                     >
                       <TrashIcon className="h-5 w-5" />
-                    </button>
+                    </button> */}
                   </div>
                 </div>
               </div>

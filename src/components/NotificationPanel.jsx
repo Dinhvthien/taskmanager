@@ -260,6 +260,32 @@ const NotificationPanel = () => {
     const data = parseNotificationData(notification)
     const basePath = getBasePath()
 
+    // Điều hướng cho thông báo mention trong tin nhắn
+    if (notification.type === 'MESSAGE_MENTION') {
+      const conversationId = data.conversationId
+      const messageId = data.messageId
+
+      if (!conversationId) {
+        return
+      }
+
+      // Điều hướng đến trang messaging với conversationId và messageId
+      const targetPath = `${basePath}/messaging`
+      navigate(targetPath, {
+        state: { 
+          conversationId: conversationId,
+          messageId: messageId 
+        }
+      })
+
+      if (!notification.read) {
+        handleMarkAsRead(notification.id)
+      }
+
+      setIsOpen(false)
+      return
+    }
+
     // Điều hướng cho thông báo đánh giá báo cáo cuối ngày
     if (notification.type === 'DAILY_REPORT_EVALUATED') {
       const reportDate = data.reportDate
@@ -402,7 +428,8 @@ const NotificationPanel = () => {
                         {!notification.read && (
                           <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
                         )}
-                        <button
+                        {/* Nút xóa đã bị vô hiệu hóa - không cho phép xóa thông báo */}
+                        {/* <button
                           onClick={(e) => {
                             e.stopPropagation()
                             handleDelete(notification.id)
@@ -410,7 +437,7 @@ const NotificationPanel = () => {
                           className="text-gray-400 hover:text-red-600 p-1"
                         >
                           <XMarkIcon className="h-3 w-3 sm:h-4 sm:w-4" />
-                        </button>
+                        </button> */}
                       </div>
                     </div>
                   </div>

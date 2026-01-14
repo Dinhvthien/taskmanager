@@ -475,6 +475,18 @@ const TaskDetailPage = ({ basePath }) => {
   const [editingCommentContent, setEditingCommentContent] = useState('')
   const [currentUserId, setCurrentUserId] = useState(null)
 
+  // Scroll to comments section if hash is present
+  useEffect(() => {
+    if (location.hash === '#comments') {
+      setTimeout(() => {
+        const commentsSection = document.getElementById('comments')
+        if (commentsSection) {
+          commentsSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }, 500) // Wait for page to load
+    }
+  }, [location.hash, taskId])
+
   useEffect(() => {
     loadTaskDetail()
     loadComments()
@@ -1156,7 +1168,7 @@ const TaskDetailPage = ({ basePath }) => {
           </div>
 
           {/* Comments */}
-          <div className="bg-white rounded-lg shadow-md p-6">
+          <div id="comments" className="bg-white rounded-lg shadow-md p-6 scroll-mt-20">
             <h3 className="text-xl font-semibold text-gray-900 mb-4">Bình luận</h3>
             
             {/* Danh sách comments - hiển thị trước */}

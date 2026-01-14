@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
 import { conversationService } from '../services/conversationService'
 import { messageService } from '../services/messageService'
 import { userService } from '../services/userService'
@@ -28,7 +29,8 @@ import {
   LinkIcon,
   DocumentIcon,
   ArrowDownTrayIcon,
-  MapPinIcon
+  MapPinIcon,
+  ArrowUturnLeftIcon
 } from '@heroicons/react/24/outline'
 import { formatDateTime, formatTime } from '../utils/dateFormat'
 
@@ -319,6 +321,7 @@ const UserAvatar = ({ user, size = 10, className = '' }) => {
 }
 
 const MessagingPage = () => {
+  const location = useLocation()
   const [conversations, setConversations] = useState([])
   const [selectedConversation, setSelectedConversation] = useState(null)
   const [messages, setMessages] = useState([])
@@ -365,6 +368,10 @@ const MessagingPage = () => {
   const [pinnedMessage, setPinnedMessage] = useState(null) // Tin nhắn đã ghim hiện tại
   const [allPinnedMessages, setAllPinnedMessages] = useState([]) // Tất cả tin nhắn đã ghim
   const [showPinnedMessagesList, setShowPinnedMessagesList] = useState(false) // Hiển thị danh sách pinned messages
+  const [mentionQuery, setMentionQuery] = useState('') // Query cho mention autocomplete
+  const [showMentionSuggestions, setShowMentionSuggestions] = useState(false) // Hiển thị mention suggestions
+  const [mentionPosition, setMentionPosition] = useState({ start: 0, end: 0 }) // Vị trí của @ trong textarea
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0) // Index của mention được chọn
   
   const messagesEndRef = useRef(null)
   const userMessageSubscriptionKeyRef = useRef(null) // For DELETE_FOR_ME notifications
@@ -660,6 +667,25 @@ const MessagingPage = () => {
   }
 
   // Load conversations on mount
+  // Xử lý location.state để tự động mở conversation và scroll đến message khi navigate từ notification
+  useEffect(() => {
+    if (location.state?.conversationId && conversations.length > 0) {
+      const targetConversation = conversations.find(c => c.conversationId === location.state.conversationId)
+      if (targetConversation && (!selectedConversation || selectedConversation.conversationId !== targetConversation.conversationId)) {
+        setSelectedConversation(targetConversation)
+        // Nếu có messageId, sẽ scroll đến message đó sau khi messages được load
+        if (location.state.messageId) {
+          // Delay một chút để đảm bảo messages đã được load
+          setTimeout(() => {
+            scrollToMessage(location.state.messageId)
+          }, 500)
+        }
+        // Clear location.state để tránh trigger lại
+        window.history.replaceState({}, document.title)
+      }
+    }
+  }, [location.state, conversations, selectedConversation])
+
   useEffect(() => {
     loadConversations()
   }, [])
@@ -1213,6 +1239,164 @@ const MessagingPage = () => {
         <mark key={index} className="bg-yellow-300 text-gray-900 px-0.5 rounded">{part}</mark>
       ) : part
     )
+  }
+
+  // Parse và highlight mentions trong message content
+  const parseMentions = (text) => {
+    if (!text) return text
+    
+    const mentionPattern = /@(\w+)/g
+    const parts = []
+    let lastIndex = 0
+    let match
+    
+    while ((match = mentionPattern.exec(text)) !== null) {
+      // Thêm text trước mention
+      if (match.index > lastIndex) {
+        parts.push({ type: 'text', content: text.substring(lastIndex, match.index) })
+      }
+      
+      // Thêm mention
+      parts.push({ 
+        type: 'mention', 
+        content: match[0], 
+        username: match[1] 
+      })
+      
+      lastIndex = match.index + match[0].length
+    }
+    
+    // Thêm text còn lại
+    if (lastIndex < text.length) {
+      parts.push({ type: 'text', content: text.substring(lastIndex) })
+    }
+    
+    return parts.length > 0 ? parts : [{ type: 'text', content: text }]
+  }
+
+  // Render message content với mentions được highlight
+  const renderMessageContent = (content) => {
+    if (!content) return null
+    
+    const parts = parseMentions(content)
+    return parts.map((part, index) => {
+      if (part.type === 'mention') {
+        return (
+          <span key={index} className="font-bold text-blue-800 bg-blue-100 px-1.5 py-0.5 rounded">
+            {part.content}
+          </span>
+        )
+      }
+      return <span key={index}>{part.content}</span>
+    })
+  }
+
+  // Xử lý khi gõ trong textarea - detect @mention
+  const handleTextareaChange = (e) => {
+    const value = e.target.value
+    const cursorPosition = e.target.selectionStart
+    
+    setMessageContent(value)
+    
+    // Tìm @ gần nhất trước cursor
+    const textBeforeCursor = value.substring(0, cursorPosition)
+    const lastAtIndex = textBeforeCursor.lastIndexOf('@')
+    
+    if (lastAtIndex !== -1) {
+      // Kiểm tra xem có khoảng trắng sau @ không
+      const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1)
+      if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
+        // Đang gõ mention
+        const query = textAfterAt.toLowerCase()
+        setMentionQuery(query)
+        setMentionPosition({ start: lastAtIndex, end: cursorPosition })
+        setShowMentionSuggestions(true)
+        setSelectedMentionIndex(0)
+      } else {
+        setShowMentionSuggestions(false)
+      }
+    } else {
+      setShowMentionSuggestions(false)
+    }
+  }
+
+  // Lấy danh sách participants để mention
+  const getMentionableUsers = () => {
+    if (!selectedConversation || !selectedConversation.participants) return []
+    
+    return selectedConversation.participants.filter(
+      p => p.userId !== currentUser?.userId
+    )
+  }
+
+  // Filter users theo query
+  const getFilteredMentionUsers = () => {
+    const users = getMentionableUsers()
+    if (!mentionQuery) return users.slice(0, 5)
+    
+    return users.filter(user => {
+      const fullName = (user.fullName || '').toLowerCase()
+      const userName = (user.userName || '').toLowerCase()
+      const query = mentionQuery.toLowerCase()
+      return fullName.includes(query) || userName.includes(query)
+    }).slice(0, 5)
+  }
+
+  // Chọn mention user
+  const selectMention = (user) => {
+    if (!textareaRef.current) return
+    
+    const textBefore = messageContent.substring(0, mentionPosition.start)
+    const textAfter = messageContent.substring(mentionPosition.end)
+    const newContent = `${textBefore}@${user.userName} ${textAfter}`
+    
+    setMessageContent(newContent)
+    setShowMentionSuggestions(false)
+    setMentionQuery('')
+    
+    // Focus lại textarea và đặt cursor sau mention
+    setTimeout(() => {
+      if (textareaRef.current) {
+        const newCursorPos = mentionPosition.start + user.userName.length + 2 // +2 cho @ và space
+        textareaRef.current.focus()
+        textareaRef.current.setSelectionRange(newCursorPos, newCursorPos)
+      }
+    }, 0)
+  }
+
+  // Xử lý keydown trong textarea cho mention navigation
+  const handleTextareaKeyDown = (e) => {
+    if (showMentionSuggestions && getFilteredMentionUsers().length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedMentionIndex(prev => 
+          prev < getFilteredMentionUsers().length - 1 ? prev + 1 : prev
+        )
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedMentionIndex(prev => prev > 0 ? prev - 1 : 0)
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        const users = getFilteredMentionUsers()
+        if (users[selectedMentionIndex]) {
+          selectMention(users[selectedMentionIndex])
+        }
+        return
+      }
+      if (e.key === 'Escape') {
+        setShowMentionSuggestions(false)
+        return
+      }
+    }
+    
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSendMessage()
+    }
   }
   
   // Search messages in current conversation
@@ -2252,6 +2436,18 @@ const MessagingPage = () => {
                                   onClick={() => setMessageMenuOpen(null)}
                                 />
                                 <div className="absolute right-0 top-8 z-50 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[160px] py-1">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setReplyToMessage(message)
+                                      setMessageMenuOpen(null)
+                                      textareaRef.current?.focus()
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center space-x-2"
+                                  >
+                                    <ArrowUturnLeftIcon className="w-4 h-4" />
+                                    <span>Trả lời</span>
+                                  </button>
                                   {message.pinned ? (
                                     <button
                                       onClick={(e) => {
@@ -2311,16 +2507,22 @@ const MessagingPage = () => {
                             </span>
                           )}
                           {message.replyToMessage && (
-                            <div className={`mb-1 px-3 py-2 rounded-lg text-sm border-l-4 ${
-                              isMyMessage 
-                                ? 'bg-blue-100 border-blue-400 text-gray-700' 
-                                : 'bg-gray-100 border-gray-400 text-gray-700'
-                            }`}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                scrollToMessage(message.replyToMessage.messageId)
+                              }}
+                              className={`mb-1 px-3 py-2 rounded-lg text-sm border-l-4 cursor-pointer hover:opacity-80 transition-opacity ${
+                                isMyMessage 
+                                  ? 'bg-blue-100 border-blue-400 text-gray-700' 
+                                  : 'bg-gray-100 border-gray-400 text-gray-700'
+                              }`}
+                            >
                               <p className="font-medium text-xs mb-1">
                                 {message.replyToMessage.senderFullName || message.replyToMessage.senderUserName}
                               </p>
                               <p className="text-xs truncate">{message.replyToMessage.content}</p>
-                            </div>
+                            </button>
                           )}
                           {/* File đính kèm - hiển thị ngoài box màu xanh */}
                           {message.attachments && message.attachments.length > 0 && (
@@ -2360,7 +2562,11 @@ const MessagingPage = () => {
                                 }`}
                               >
                                 <p className="whitespace-pre-wrap break-words text-sm">
-                                  {messageSearchQuery ? highlightSearchText(message.content, messageSearchQuery) : message.content}
+                                  {messageSearchQuery ? (
+                                    highlightSearchText(message.content, messageSearchQuery)
+                                  ) : (
+                                    renderMessageContent(message.content)
+                                  )}
                                 </p>
                               </div>
                             )
@@ -2488,6 +2694,18 @@ const MessagingPage = () => {
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation()
+                                      setReplyToMessage(message)
+                                      setMessageMenuOpen(null)
+                                      textareaRef.current?.focus()
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center space-x-2"
+                                  >
+                                    <ArrowUturnLeftIcon className="w-4 h-4" />
+                                    <span>Trả lời</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
                                       setShowDeleteConfirm({ messageId: message.messageId, isMyMessage })
                                       setMessageMenuOpen(null)
                                     }}
@@ -2517,7 +2735,13 @@ const MessagingPage = () => {
                 <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-gray-500 mb-1">Đang trả lời:</p>
-                    <p className="text-sm text-gray-700 truncate">{replyToMessage.content}</p>
+                    <button
+                      onClick={() => scrollToMessage(replyToMessage.messageId)}
+                      className="text-sm text-gray-700 truncate hover:text-blue-600 transition-colors text-left"
+                    >
+                      <span className="font-medium">{replyToMessage.senderFullName || replyToMessage.senderUserName}: </span>
+                      {replyToMessage.content || (replyToMessage.attachments && replyToMessage.attachments.length > 0 ? `Đã gửi ${replyToMessage.attachments.length} file` : 'Tin nhắn')}
+                    </button>
                   </div>
                   <button
                     onClick={() => setReplyToMessage(null)}
@@ -2570,17 +2794,36 @@ const MessagingPage = () => {
                   <textarea
                     ref={textareaRef}
                     value={messageContent}
-                    onChange={(e) => setMessageContent(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        handleSendMessage()
-                      }
-                    }}
-                    placeholder="Nhập tin nhắn..."
+                    onChange={handleTextareaChange}
+                    onKeyDown={handleTextareaKeyDown}
+                    placeholder="Nhập tin nhắn... (Gõ @ để gọi tên người khác)"
                     rows={1}
                     className="flex-1 bg-transparent border-0 focus:ring-0 focus:outline-none resize-none text-sm text-gray-800 placeholder:text-gray-400 max-h-[120px] overflow-y-auto leading-6"
                   />
+                  {/* Mention Suggestions */}
+                  {showMentionSuggestions && getFilteredMentionUsers().length > 0 && (
+                    <div className="absolute bottom-full left-0 mb-2 w-full bg-white rounded-lg shadow-xl border border-gray-200 max-h-[200px] overflow-y-auto z-[60]">
+                      {getFilteredMentionUsers().map((user, index) => (
+                        <button
+                          key={user.userId}
+                          onClick={() => selectMention(user)}
+                          className={`w-full px-3 py-2 text-left flex items-center space-x-2 hover:bg-blue-50 transition-colors ${
+                            index === selectedMentionIndex ? 'bg-blue-50' : ''
+                          }`}
+                        >
+                          <UserAvatar user={user} size={8} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {user.fullName || user.userName}
+                            </p>
+                            {user.userName && (
+                              <p className="text-xs text-gray-500 truncate">@{user.userName}</p>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation()

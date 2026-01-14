@@ -137,6 +137,16 @@ export const taskService = {
     return api.delete(`/tasks/${taskId}`)
   },
 
+  // Khôi phục task đã bị xóa (restore)
+  restoreTask: (taskId) => {
+    return api.post(`/tasks/${taskId}/restore`)
+  },
+
+  // Xóa vĩnh viễn task (hard delete)
+  hardDeleteTask: (taskId) => {
+    return api.delete(`/tasks/${taskId}/permanent`)
+  },
+
   // Xóa recurring task (soft delete)
   deleteRecurringTask: (recurringTaskId) => {
     return api.delete(`/recurring-tasks/${recurringTaskId}`)

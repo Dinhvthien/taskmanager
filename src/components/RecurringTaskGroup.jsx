@@ -99,6 +99,28 @@ const RecurringTaskGroup = ({ recurringTask, tasks, onEdit, onDeactivate, onActi
                 </div>
               )}
 
+              {/* Người phụ trách */}
+              {recurringTask.assignedUserNames && recurringTask.assignedUserNames.length > 0 && (
+                <div className="flex items-center space-x-2">
+                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  <span className="text-xs font-medium text-gray-600">Người phụ trách:</span>
+                  <div className="flex flex-wrap gap-1">
+                    {recurringTask.assignedUserNames.slice(0, 2).map((userName, idx) => (
+                      <span key={idx} className="px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800">
+                        {userName}
+                      </span>
+                    ))}
+                    {recurringTask.assignedUserNames.length > 2 && (
+                      <span className="px-2 py-1 text-xs font-medium text-gray-600">
+                        +{recurringTask.assignedUserNames.length - 2}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Trạng thái */}
               <div className="flex items-center space-x-2">
                 <span className="text-sm font-medium text-gray-700">
@@ -230,6 +252,18 @@ const RecurringTaskGroup = ({ recurringTask, tasks, onEdit, onDeactivate, onActi
                             {task.progress || 0}%
                           </span>
                         </div>
+                        {/* Người phụ trách */}
+                        {task.assignedUserNames && task.assignedUserNames.length > 0 && (
+                          <div className="flex items-center space-x-1.5">
+                            <svg className={`w-3.5 h-3.5 ${isOverdue ? 'text-gray-400' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            </svg>
+                            <span className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-gray-600'}`}>
+                              {task.assignedUserNames.slice(0, 2).join(', ')}
+                              {task.assignedUserNames.length > 2 && ` +${task.assignedUserNames.length - 2}`}
+                            </span>
+                          </div>
+                        )}
                       </div>
                       {/* Hiển thị lý do chờ */}
                       {(task.status === 'WAITING' || (task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0)) && (

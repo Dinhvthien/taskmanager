@@ -348,6 +348,32 @@ const DirectorNotificationPanel = () => {
       })
     }
     
+    // Điều hướng cho thông báo mention trong tin nhắn
+    if (notification.type === 'MESSAGE_MENTION') {
+      const conversationId = data.conversationId
+      const messageId = data.messageId
+
+      if (!conversationId) {
+        return
+      }
+
+      // Điều hướng đến trang messaging với conversationId và messageId
+      const targetPath = `/director/messaging`
+      navigate(targetPath, {
+        state: { 
+          conversationId: conversationId,
+          messageId: messageId 
+        }
+      })
+
+      if (!notification.read) {
+        handleMarkAsRead(notification.id)
+      }
+
+      setIsOpen(false)
+      return
+    }
+    
     // Xử lý navigation cho DEPARTMENT_DAILY_REPORT_SENT (báo cáo phòng ban mới)
     if (notification.type === 'DEPARTMENT_DAILY_REPORT_SENT' ||
         (notification.title && notification.title.includes('Báo cáo phòng ban'))) {
@@ -596,7 +622,8 @@ const DirectorNotificationPanel = () => {
                         {!notification.read && (
                           <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
                         )}
-                        <button
+                        {/* Nút xóa đã bị vô hiệu hóa - không cho phép xóa thông báo */}
+                        {/* <button
                           onClick={(e) => {
                             e.stopPropagation()
                             handleDelete(notification.id)
@@ -604,7 +631,7 @@ const DirectorNotificationPanel = () => {
                           className="text-gray-400 hover:text-red-600 p-1"
                         >
                           <XMarkIcon className="h-3 w-3 sm:h-4 sm:w-4" />
-                        </button>
+                        </button> */}
                       </div>
                     </div>
                   </div>
