@@ -5,7 +5,7 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorMessage from '../../components/ErrorMessage'
 import { CheckIcon, XMarkIcon, PencilIcon } from '@heroicons/react/24/outline'
 import Modal from '../../components/Modal'
-import { formatDate } from '../../utils/dateFormat'
+import { formatDate, formatTimeString } from '../../utils/dateFormat'
 
 const AdHocTasksPage = () => {
   const [loading, setLoading] = useState(true)
@@ -146,10 +146,19 @@ const AdHocTasksPage = () => {
   const handleSaveEdit = async () => {
     if (!editingTask) return
 
-    // Note: Backend có thể không có API để update ad-hoc task, nên tạm thời chỉ hiển thị thông báo
-    // Nếu cần, sẽ cần thêm API mới
-    setError('Chức năng chỉnh sửa công việc phát sinh đang được phát triển')
-    setEditingTask(null)
+    try {
+      setError('')
+      await dailyReportService.updateAdHocTaskSelfScore(editingTask.adHocTaskId, editFormData.selfScore)
+      setEditingTask(null)
+      setEditFormData({
+        content: '',
+        comment: '',
+        selfScore: null
+      })
+      loadAdHocTasks() // Reload danh sách
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi cập nhật điểm tự chấm')
+    }
   }
 
   const getRatingLabel = (rating) => {
@@ -190,10 +199,10 @@ const AdHocTasksPage = () => {
           <button
             type="button"
             onClick={() => setFilter('pending')}
-            className={`px-4 py-2 font-medium text-sm whitespace-nowrap ${
+            className={`px-5 py-2.5 font-medium text-sm whitespace-nowrap transition-all duration-200 relative ${
               filter === 'pending'
-                ? 'border-b-2 border-blue-600 text-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'text-blue-600 border-b-2 border-blue-600 font-semibold'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
           >
             Chờ duyệt ({adHocTasks.filter(t => !t.approved && !t.directorRating && !t.directorComment).length})
@@ -201,10 +210,10 @@ const AdHocTasksPage = () => {
           <button
             type="button"
             onClick={() => setFilter('approved')}
-            className={`px-4 py-2 font-medium text-sm whitespace-nowrap ${
+            className={`px-5 py-2.5 font-medium text-sm whitespace-nowrap transition-all duration-200 relative ${
               filter === 'approved'
-                ? 'border-b-2 border-blue-600 text-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'text-blue-600 border-b-2 border-blue-600 font-semibold'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
           >
             Đã duyệt ({adHocTasks.filter(t => t.approved).length})
@@ -212,10 +221,10 @@ const AdHocTasksPage = () => {
           <button
             type="button"
             onClick={() => setFilter('rejected')}
-            className={`px-4 py-2 font-medium text-sm whitespace-nowrap ${
+            className={`px-5 py-2.5 font-medium text-sm whitespace-nowrap transition-all duration-200 relative ${
               filter === 'rejected'
-                ? 'border-b-2 border-red-600 text-red-600'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'text-red-600 border-b-2 border-red-600 font-semibold'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
           >
             Từ chối ({adHocTasks.filter(t => !t.approved && (t.directorRating || t.directorComment)).length})
@@ -223,10 +232,10 @@ const AdHocTasksPage = () => {
           <button
             type="button"
             onClick={() => setFilter('all')}
-            className={`px-4 py-2 font-medium text-sm whitespace-nowrap ${
+            className={`px-5 py-2.5 font-medium text-sm whitespace-nowrap transition-all duration-200 relative ${
               filter === 'all'
-                ? 'border-b-2 border-blue-600 text-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'text-blue-600 border-b-2 border-blue-600 font-semibold'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
           >
             Tất cả ({adHocTasks.length})
@@ -239,7 +248,7 @@ const AdHocTasksPage = () => {
             <p className="text-gray-500">Không có công việc phát sinh nào</p>
           </div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-4">
             {filteredTasks.map((task) => {
               const isRejected = !task.approved && (task.directorRating || task.directorComment)
               const isPending = !task.approved && !task.directorRating && !task.directorComment
@@ -247,7 +256,7 @@ const AdHocTasksPage = () => {
               return (
                 <div
                   key={task.adHocTaskId}
-                  className={`border rounded-lg p-5 shadow-sm transition-all hover:shadow-md ${
+                  className={`border rounded-lg p-5 shadow-sm transition-all hover:shadow-md flex flex-col h-full ${
                     task.approved 
                       ? 'bg-green-50 border-green-200' 
                       : isRejected 
@@ -255,7 +264,7 @@ const AdHocTasksPage = () => {
                         : 'bg-white border-gray-200'
                   }`}
                 >
-                  <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-start justify-between mb-3 flex-shrink-0">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <h3 className="font-semibold text-gray-900 text-base">{task.content}</h3>
@@ -284,6 +293,20 @@ const AdHocTasksPage = () => {
                           <span className="font-medium">Ngày báo cáo:</span>
                           <span>{formatDate(task.reportDate)}</span>
                         </p>
+                        {(task.startTime || task.endTime) && (
+                          <p className="flex items-center gap-2">
+                            <span className="font-medium">Thời gian thực hiện:</span>
+                            <span>
+                              {task.startTime && task.endTime
+                                ? `${formatTimeString(task.startTime)} - ${formatTimeString(task.endTime)}`
+                                : task.startTime
+                                ? `Từ ${formatTimeString(task.startTime)}`
+                                : task.endTime
+                                ? `Đến ${formatTimeString(task.endTime)}`
+                                : 'N/A'}
+                            </span>
+                          </p>
+                        )}
                         {task.comment && (
                           <p className="flex items-start gap-2">
                             <span className="font-medium">Comment:</span>
@@ -319,59 +342,63 @@ const AdHocTasksPage = () => {
                   </div>
                   
                   {/* Action buttons */}
-                  <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-200">
-                    {isPending && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => handleStartEdit(task)}
-                          className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                        >
-                          <PencilIcon className="w-4 h-4" />
-                          Chỉnh sửa
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleQuickReject(task)}
-                          className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
-                        >
-                          <XMarkIcon className="w-4 h-4" />
-                          Từ chối
-                        </button>
+                  <div className="flex items-center justify-between gap-2 mt-auto pt-4 border-t border-gray-200 flex-shrink-0">
+                    <div className="flex items-center gap-2">
+                      {isPending && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleStartEdit(task)}
+                            title="Chỉnh sửa"
+                            className="flex items-center justify-center w-9 h-9 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 hover:shadow-md active:scale-95 transition-all duration-200 border border-gray-200"
+                          >
+                            <PencilIcon className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleQuickReject(task)}
+                            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 hover:shadow-lg hover:shadow-red-500/50 active:scale-95 transition-all duration-200"
+                          >
+                            <XMarkIcon className="w-4 h-4" />
+                            Từ chối
+                          </button>
+                        </>
+                      )}
+                      {isRejected && (
                         <button
                           type="button"
                           onClick={() => {
                             setEvaluatingTask(task)
                             setEvaluationData({
-                              rating: 'GOOD',
-                              comment: '',
+                              rating: task.directorRating || 'GOOD',
+                              comment: task.directorComment || '',
                               approved: false,
                               approvedScore: task.selfScore || null
                             })
                           }}
-                          className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors ml-auto"
+                          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-500/50 active:scale-95 transition-all duration-200"
                         >
-                          <CheckIcon className="w-4 h-4" />
-                          Duyệt
+                          <PencilIcon className="w-4 h-4" />
+                          Xem lại
                         </button>
-                      </>
-                    )}
-                    {isRejected && (
+                      )}
+                    </div>
+                    {isPending && (
                       <button
                         type="button"
                         onClick={() => {
                           setEvaluatingTask(task)
                           setEvaluationData({
-                            rating: task.directorRating || 'GOOD',
-                            comment: task.directorComment || '',
+                            rating: 'GOOD',
+                            comment: '',
                             approved: false,
                             approvedScore: task.selfScore || null
                           })
                         }}
-                        className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                        className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-500/50 active:scale-95 transition-all duration-200"
                       >
-                        <PencilIcon className="w-4 h-4" />
-                        Xem lại
+                        <CheckIcon className="w-4 h-4" />
+                        Duyệt
                       </button>
                     )}
                   </div>
@@ -386,46 +413,37 @@ const AdHocTasksPage = () => {
           <Modal
             isOpen={!!editingTask}
             onClose={() => setEditingTask(null)}
-            title="Chỉnh sửa công việc phát sinh"
-            size="lg"
+            title="Chỉnh sửa điểm tự chấm"
+            size="md"
           >
             <div className="space-y-4">
               <div className="p-4 bg-gray-50 rounded-lg">
                 <p className="text-sm text-gray-600"><strong>Nhân viên:</strong> {editingTask.userFullName}</p>
                 <p className="text-sm text-gray-600"><strong>Ngày báo cáo:</strong> {formatDate(editingTask.reportDate)}</p>
+                <p className="text-sm text-gray-600 mt-2"><strong>Nội dung:</strong> {editingTask.content}</p>
+                {(editingTask.startTime || editingTask.endTime) && (
+                  <p className="text-sm text-gray-600">
+                    <strong>Thời gian thực hiện:</strong> {
+                      editingTask.startTime && editingTask.endTime
+                        ? `${formatTimeString(editingTask.startTime)} - ${formatTimeString(editingTask.endTime)}`
+                        : editingTask.startTime
+                        ? `Từ ${formatTimeString(editingTask.startTime)}`
+                        : editingTask.endTime
+                        ? `Đến ${formatTimeString(editingTask.endTime)}`
+                        : 'N/A'
+                    }
+                  </p>
+                )}
+                {editingTask.comment && (
+                  <p className="text-sm text-gray-600 mt-2">
+                    <strong>Comment:</strong> {editingTask.comment}
+                  </p>
+                )}
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nội dung công việc
-                </label>
-                <textarea
-                  value={editFormData.content}
-                  onChange={(e) => setEditFormData({ ...editFormData, content: e.target.value })}
-                  rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  disabled
-                />
-                <p className="text-xs text-gray-500 mt-1">Nội dung không thể chỉnh sửa</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Comment
-                </label>
-                <textarea
-                  value={editFormData.comment}
-                  onChange={(e) => setEditFormData({ ...editFormData, comment: e.target.value })}
-                  rows={2}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  disabled
-                />
-                <p className="text-xs text-gray-500 mt-1">Comment không thể chỉnh sửa</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Điểm tự chấm (giờ)
+                  Điểm tự chấm (giờ) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -433,26 +451,35 @@ const AdHocTasksPage = () => {
                   min="0"
                   value={editFormData.selfScore || ''}
                   onChange={(e) => setEditFormData({ ...editFormData, selfScore: e.target.value ? parseFloat(e.target.value) : null })}
+                  placeholder="Nhập điểm tự chấm (ví dụ: 2.5)"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  disabled
+                  required
                 />
-                <p className="text-xs text-gray-500 mt-1">Điểm tự chấm không thể chỉnh sửa</p>
-              </div>
-
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <p className="text-sm text-yellow-800">
-                  <strong>Lưu ý:</strong> Chức năng chỉnh sửa công việc phát sinh đang được phát triển. 
-                  Hiện tại bạn chỉ có thể xem thông tin.
-                </p>
+                <p className="text-xs text-gray-500 mt-1">Điểm tính bằng giờ (ví dụ: 2.5 giờ = 2.5 điểm)</p>
               </div>
 
               <div className="flex justify-end gap-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => setEditingTask(null)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                  onClick={() => {
+                    setEditingTask(null)
+                    setEditFormData({
+                      content: '',
+                      comment: '',
+                      selfScore: null
+                    })
+                  }}
+                  className="px-5 py-2.5 text-sm font-medium border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 hover:shadow-md active:scale-95 transition-all duration-200"
                 >
-                  Đóng
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  disabled={!editFormData.selfScore || editFormData.selfScore <= 0}
+                  className="px-5 py-2.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-500/50 active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:scale-100"
+                >
+                  Lưu
                 </button>
               </div>
             </div>
@@ -482,6 +509,17 @@ const AdHocTasksPage = () => {
                 <div className="space-y-1 text-sm text-gray-600">
                   <p><strong>Nhân viên:</strong> {evaluatingTask.userFullName} ({evaluatingTask.userName})</p>
                   <p><strong>Ngày báo cáo:</strong> {formatDate(evaluatingTask.reportDate)}</p>
+                  {(evaluatingTask.startTime || evaluatingTask.endTime) && (
+                    <p><strong>Thời gian thực hiện:</strong> {
+                      evaluatingTask.startTime && evaluatingTask.endTime
+                        ? `${formatTimeString(evaluatingTask.startTime)} - ${formatTimeString(evaluatingTask.endTime)}`
+                        : evaluatingTask.startTime
+                        ? `Từ ${formatTimeString(evaluatingTask.startTime)}`
+                        : evaluatingTask.endTime
+                        ? `Đến ${formatTimeString(evaluatingTask.endTime)}`
+                        : 'N/A'
+                    }</p>
+                  )}
                   <p><strong>Điểm tự chấm:</strong> {evaluatingTask.selfScore ? `${evaluatingTask.selfScore} giờ` : 'Chưa có'}</p>
                   {evaluatingTask.comment && (
                     <p><strong>Comment:</strong> {evaluatingTask.comment}</p>
@@ -549,7 +587,7 @@ const AdHocTasksPage = () => {
                       approvedScore: null
                     })
                   }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                  className="px-5 py-2.5 text-sm font-medium border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 hover:shadow-md active:scale-95 transition-all duration-200"
                 >
                   Hủy
                 </button>
@@ -558,7 +596,7 @@ const AdHocTasksPage = () => {
                     <button
                       type="button"
                       onClick={() => handleReject(evaluatingTask)}
-                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                      className="px-5 py-2.5 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 hover:shadow-lg hover:shadow-red-500/50 active:scale-95 transition-all duration-200"
                     >
                       Từ chối
                     </button>
@@ -566,7 +604,7 @@ const AdHocTasksPage = () => {
                       type="button"
                       onClick={() => handleApprove(evaluatingTask)}
                       disabled={!evaluationData.approvedScore || evaluationData.approvedScore <= 0}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-5 py-2.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-500/50 active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:scale-100"
                     >
                       Duyệt và tính điểm
                     </button>
@@ -584,7 +622,7 @@ const AdHocTasksPage = () => {
                       handleApprove(evaluatingTask)
                     }}
                     disabled={!evaluationData.approvedScore || evaluationData.approvedScore <= 0}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-5 py-2.5 text-sm font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 hover:shadow-lg hover:shadow-green-500/50 active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:scale-100"
                   >
                     Duyệt lại
                   </button>

@@ -81,6 +81,13 @@ const dailyReportService = {
     return api.get('/daily-reports/director/ad-hoc-tasks')
   },
   
+  // Cập nhật điểm tự chấm của công việc phát sinh (cho Director)
+  updateAdHocTaskSelfScore: (adHocTaskId, selfScore) => {
+    return api.put(`/daily-reports/director/ad-hoc-tasks/${adHocTaskId}/self-score`, null, {
+      params: { selfScore }
+    })
+  },
+  
   // Lấy thống kê chi tiết báo cáo nhân viên trong ngày (cho Director)
   getEmployeesStatisticsByDate: (date) => {
     return api.get('/daily-reports/director/employees-statistics', {
