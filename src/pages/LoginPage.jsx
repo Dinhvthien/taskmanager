@@ -19,11 +19,20 @@ const LoginPage = () => {
   useEffect(() => {
     const checkSystemHealth = async () => {
       try {
-        // Try to call health endpoint or a simple public endpoint
+        // Try to call health endpoint
         // If server returns 503, redirect to maintenance page
-        await api.get('/actuator/health', {
-          validateStatus: (status) => status < 500 || status === 503
+        const response = await api.get('/actuator/health', {
+          validateStatus: (status) => {
+            // Cho phép tất cả status codes để có thể check 503
+            return true
+          }
         })
+        
+        // Nếu response có status 503, redirect
+        if (response?.status === 503) {
+          window.location.href = '/maintenance.html'
+          return
+        }
       } catch (error) {
         // If error response status is 503, redirect to maintenance page
         if (error.response?.status === 503) {
@@ -31,6 +40,7 @@ const LoginPage = () => {
           return
         }
         // Ignore other errors (network errors, 401, 404, etc.) to allow login page to display
+        // Không redirect nếu không phải 503
       }
     }
 

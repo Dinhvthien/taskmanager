@@ -29,8 +29,11 @@ api.interceptors.response.use(
     // Không log 404 errors cho download attachment requests (file not found là expected)
     const isDownloadAttachment = error.config?.url?.includes('/attachments/') && error.config?.url?.includes('/download')
     
-    if (error.response?.status === 503) {
-      // Xử lý khi hệ thống đang bảo trì
+    // Bỏ qua redirect cho health check endpoint - để component tự xử lý
+    const isHealthCheck = error.config?.url?.includes('/actuator/health')
+    
+    if (error.response?.status === 503 && !isHealthCheck) {
+      // Xử lý khi hệ thống đang bảo trì (trừ health check endpoint)
       window.location.href = '/maintenance.html'
       return Promise.reject(error)
     } else if (error.response?.status === 401) {
