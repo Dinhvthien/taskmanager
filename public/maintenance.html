@@ -79,6 +79,16 @@
                 </p>
             </div>
 
+            <!-- Try Again Button -->
+            <div class="mb-6">
+                <button
+                    onclick="checkSystemStatus()"
+                    class="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    Thử lại / Try Again
+                </button>
+            </div>
+
             <!-- Contact Information -->
             <div class="border-t border-gray-200 pt-6">
                 <p class="text-sm text-gray-500 mb-2">
@@ -100,11 +110,7 @@
     </div>
 
     <script>
-        let successCount = 0;
-        const REQUIRED_SUCCESS_COUNT = 3; // Cần 3 lần check thành công liên tiếp
-        let checkInterval = null;
-
-        // Kiểm tra xem server đã hoạt động trở lại chưa
+        // Kiểm tra xem server đã hoạt động trở lại chưa (chỉ khi người dùng click nút)
         async function checkSystemStatus() {
             try {
                 // Lấy base URL từ environment hoặc dùng default
@@ -118,53 +124,36 @@
                     },
                 });
 
-                // Nếu server trả về 200 (UP), tăng counter
+                // Nếu server trả về 200 (UP), redirect về login
                 if (response.status === 200) {
                     try {
                         const data = await response.json();
                         if (data.status === 'UP') {
-                            successCount++;
-                            // Chỉ redirect khi đã check thành công 3 lần liên tiếp
-                            if (successCount >= REQUIRED_SUCCESS_COUNT) {
-                                // Dừng interval trước khi redirect
-                                if (checkInterval) {
-                                    clearInterval(checkInterval);
-                                }
-                                window.location.href = '/login';
-                                return;
-                            }
-                        } else {
-                            // Reset counter nếu status không phải UP
-                            successCount = 0;
+                            // Đánh dấu là từ maintenance page để login page không check ngay
+                            sessionStorage.setItem('fromMaintenance', 'true');
+                            window.location.href = '/login';
+                            return;
                         }
                     } catch (parseError) {
-                        // Nếu không parse được JSON nhưng status 200, vẫn tính là thành công
-                        successCount++;
-                        if (successCount >= REQUIRED_SUCCESS_COUNT) {
-                            if (checkInterval) {
-                                clearInterval(checkInterval);
-                            }
+                        // Nếu không parse được JSON nhưng status 200, vẫn redirect
+                        if (response.status === 200) {
+                            sessionStorage.setItem('fromMaintenance', 'true');
                             window.location.href = '/login';
                             return;
                         }
                     }
-                } else {
-                    // Nếu không phải 200, reset counter
-                    successCount = 0;
                 }
                 
+                // Nếu vẫn là 503, hiển thị thông báo
+                alert('Hệ thống vẫn đang bảo trì. Vui lòng thử lại sau.');
             } catch (error) {
-                // Nếu có lỗi network, reset counter
-                successCount = 0;
+                // Nếu có lỗi network, hiển thị thông báo
+                alert('Không thể kết nối đến server. Vui lòng thử lại sau.');
             }
         }
 
-        // Đợi 2 giây sau khi load trang mới bắt đầu check (tránh check ngay lập tức)
-        setTimeout(() => {
-            checkSystemStatus();
-            // Kiểm tra lại mỗi 5 giây (giảm tần suất để tránh quá tải)
-            checkInterval = setInterval(checkSystemStatus, 5000);
-        }, 2000);
+        // Gán hàm checkSystemStatus vào window để có thể gọi từ nút
+        window.checkSystemStatus = checkSystemStatus;
     </script>
 </body>
 </html>

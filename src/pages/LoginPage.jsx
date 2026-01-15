@@ -17,6 +17,14 @@ const LoginPage = () => {
 
   // Check system health when component mounts
   useEffect(() => {
+    // Kiểm tra xem có phải vừa từ maintenance page redirect về không
+    const fromMaintenance = sessionStorage.getItem('fromMaintenance')
+    if (fromMaintenance) {
+      // Xóa flag và không check ngay để tránh redirect lại
+      sessionStorage.removeItem('fromMaintenance')
+      return
+    }
+
     const checkSystemHealth = async () => {
       try {
         // Try to call health endpoint
@@ -44,10 +52,10 @@ const LoginPage = () => {
       }
     }
 
-    // Đợi một chút trước khi check để tránh race condition với maintenance page
+    // Đợi 3 giây trước khi check để tránh race condition với maintenance page
     const timeoutId = setTimeout(() => {
       checkSystemHealth()
-    }, 1000)
+    }, 3000)
 
     return () => clearTimeout(timeoutId)
   }, [])
