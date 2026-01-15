@@ -98,6 +98,54 @@
             <p>© 2026 Task Management System. All rights reserved.</p>
         </div>
     </div>
+
+    <script>
+        // Kiểm tra xem server đã hoạt động trở lại chưa
+        async function checkSystemStatus() {
+            try {
+                // Lấy base URL từ environment hoặc dùng default
+                const apiBaseUrl = window.location.origin + '/api';
+                
+                // Gọi health check endpoint
+                const response = await fetch(`${apiBaseUrl}/actuator/health`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                // Nếu server trả về 200 (UP), redirect về login
+                if (response.status === 200) {
+                    try {
+                        const data = await response.json();
+                        if (data.status === 'UP') {
+                            window.location.href = '/login';
+                            return;
+                        }
+                    } catch (parseError) {
+                        // Nếu không parse được JSON, kiểm tra status code
+                        if (response.status === 200) {
+                            // Nếu status 200 nhưng không phải JSON, có thể server đã hoạt động
+                            window.location.href = '/login';
+                            return;
+                        }
+                    }
+                }
+                
+                // Nếu vẫn là 503 hoặc status khác, giữ nguyên trang bảo trì
+                // Không làm gì, để người dùng tiếp tục xem trang bảo trì
+            } catch (error) {
+                // Nếu có lỗi network (CORS, timeout, etc.), giữ nguyên trang bảo trì
+                // Không làm gì
+            }
+        }
+
+        // Kiểm tra ngay khi trang load
+        checkSystemStatus();
+
+        // Kiểm tra lại mỗi 10 giây để tự động redirect khi server hoạt động trở lại
+        setInterval(checkSystemStatus, 10000);
+    </script>
 </body>
 </html>
 
