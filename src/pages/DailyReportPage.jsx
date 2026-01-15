@@ -19,6 +19,7 @@ const DailyReportPage = () => {
   const [mode, setMode] = useState(urlMode) // 'register' hoặc 'report'
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [validationErrors, setValidationErrors] = useState({}) // Lưu lỗi validation cho từng trường
   const [allTasks, setAllTasks] = useState([])
   const [selectedTasks, setSelectedTasks] = useState([]) // Array of { taskId, task, priority, comment }
   const [adHocTasks, setAdHocTasks] = useState([])
@@ -212,15 +213,23 @@ const DailyReportPage = () => {
 
   const handleAddAdHocTask = () => {
     setHasUserInteraction(true)
-    setAdHocTasks(prev => [...prev, {
-      id: Date.now(),
-      content: '',
-      priority: 'MEDIUM',
-      comment: '',
-      selfScore: null,
-      startTime: '', // Thời gian bắt đầu (HH:mm)
-      endTime: '' // Thời gian kết thúc (HH:mm)
-    }])
+    setAdHocTasks(prev => {
+      // Tạo id duy nhất để tránh duplicate
+      const newId = Date.now() + Math.random()
+      // Kiểm tra xem id đã tồn tại chưa (rất hiếm nhưng vẫn kiểm tra)
+      const existingIds = new Set(prev.map(t => t.id))
+      const finalId = existingIds.has(newId) ? newId + Math.random() : newId
+      
+      return [...prev, {
+        id: finalId,
+        content: '',
+        priority: 'MEDIUM',
+        comment: '',
+        selfScore: null,
+        startTime: '', // Thời gian bắt đầu (HH:mm)
+        endTime: '' // Thời gian kết thúc (HH:mm)
+      }]
+    })
   }
 
   const handleRemoveAdHocTask = (id) => {
@@ -238,15 +247,34 @@ const DailyReportPage = () => {
   // Hàm thêm công việc phát sinh tại thời gian cụ thể
   const handleAddAdHocAtTime = (startTime, endTime) => {
     setHasUserInteraction(true)
-    setAdHocTasks(prev => [...prev, {
-      id: Date.now(),
-      content: '',
-      priority: 'MEDIUM',
-      comment: '',
-      selfScore: null,
-      startTime: startTime,
-      endTime: endTime
-    }])
+    setAdHocTasks(prev => {
+      // Kiểm tra xem đã có công việc phát sinh với cùng thời gian và nội dung trống chưa
+      const existingEmptyAtTime = prev.find(ah => 
+        !ah.content && 
+        ah.startTime === startTime && 
+        ah.endTime === endTime
+      )
+      
+      // Nếu đã có công việc trống với cùng thời gian, không thêm mới
+      if (existingEmptyAtTime) {
+        return prev
+      }
+      
+      // Tạo id duy nhất để tránh duplicate
+      const newId = Date.now() + Math.random()
+      const existingIds = new Set(prev.map(t => t.id))
+      const finalId = existingIds.has(newId) ? newId + Math.random() : newId
+      
+      return [...prev, {
+        id: finalId,
+        content: '',
+        priority: 'MEDIUM',
+        comment: '',
+        selfScore: null,
+        startTime: startTime,
+        endTime: endTime
+      }]
+    })
   }
 
   // Hàm tạo snapshot dữ liệu để so sánh
@@ -299,6 +327,7 @@ const DailyReportPage = () => {
         setLoading(true)
       }
       setError('')
+      setValidationErrors({}) // Clear validation errors khi load dữ liệu mới
       const targetDate = date || selectedDate
       
       const response = await dailyReportService.getMyDailyReportsByDateRange(targetDate, targetDate)
@@ -339,8 +368,34 @@ const DailyReportPage = () => {
           }
           
           if (reportToLoad.adHocTasks && reportToLoad.adHocTasks.length > 0) {
-            loadedAdHocTasks = reportToLoad.adHocTasks.map(ah => ({
-              id: ah.id || Date.now() + Math.random(),
+            // Loại bỏ duplicate dựa trên id hoặc (content + startTime + endTime)
+            const seenIds = new Set()
+            const seenContentTime = new Set()
+            const uniqueAdHocTasks = reportToLoad.adHocTasks.filter(ah => {
+              const id = ah.id != null ? Number(ah.id) : null
+              const contentTimeKey = `${ah.content || ''}_${ah.startTime || ''}_${ah.endTime || ''}`
+              
+              // Nếu có id, kiểm tra duplicate theo id
+              if (id != null && !isNaN(id) && id > 0) {
+                if (seenIds.has(id)) {
+                  return false // Duplicate id
+                }
+                seenIds.add(id)
+                return true
+              }
+              
+              // Nếu không có id, kiểm tra duplicate theo content + time
+              if (seenContentTime.has(contentTimeKey)) {
+                return false // Duplicate content + time
+              }
+              seenContentTime.add(contentTimeKey)
+              return true
+            })
+            
+            loadedAdHocTasks = uniqueAdHocTasks.map(ah => ({
+              // QUAN TRỌNG: Giữ nguyên id từ DB, chỉ tạo id tạm thời nếu thực sự không có id
+              // Điều này đảm bảo không bị duplicate khi gửi báo cáo
+              id: ah.id != null ? Number(ah.id) : Date.now() + Math.random(),
               content: ah.content,
               priority: ah.priority || 'MEDIUM',
               comment: '', // Reset comment khi load vào mode register (chỉ giữ thời gian và selfScore)
@@ -380,18 +435,112 @@ const DailyReportPage = () => {
     }
   }
 
-  // Lưu lịch làm việc (thủ công - khi người dùng nhấn nút Lưu)
-  const handleSaveSchedule = async () => {
+  // Hàm chuyển đổi thời gian sang phút để so sánh
+  const timeToMinutes = (timeStr) => {
+    if (!timeStr) return null
+    const [hours, minutes] = timeStr.split(':').map(Number)
+    if (isNaN(hours) || isNaN(minutes)) return null
+    return hours * 60 + minutes
+  }
+
+  // Validate tất cả các trường trước khi lưu
+  const validateSchedule = () => {
+    const errors = {}
+    let hasError = false
+
     // Validate: phải có ít nhất 1 task được chọn hoặc 1 công việc phát sinh
     if (selectedTasks.length === 0 && adHocTasks.length === 0) {
-      setError('Vui lòng chọn ít nhất một công việc hoặc thêm công việc phát sinh trước khi lưu.')
-      return
+      errors.general = 'Vui lòng chọn ít nhất một công việc hoặc thêm công việc phát sinh trước khi lưu.'
+      hasError = true
     }
 
-    // Validate công việc phát sinh: nội dung không được để trống
-    const invalidAdHocTasks = adHocTasks.filter(task => !task.content.trim())
-    if (invalidAdHocTasks.length > 0) {
-      setError('Vui lòng nhập nội dung cho tất cả công việc phát sinh trước khi lưu.')
+    // Validate công việc thường
+    selectedTasks.forEach((task, index) => {
+      const taskKey = `task_${task.taskId}`
+      
+      // Validate thời gian bắt đầu
+      if (!task.startTime || !task.startTime.trim()) {
+        errors[`${taskKey}_startTime`] = `Công việc "${task.task.title}": Vui lòng nhập thời gian bắt đầu.`
+        hasError = true
+      }
+      
+      // Validate thời gian kết thúc
+      if (!task.endTime || !task.endTime.trim()) {
+        errors[`${taskKey}_endTime`] = `Công việc "${task.task.title}": Vui lòng nhập thời gian kết thúc.`
+        hasError = true
+      }
+      
+      // Validate thời gian bắt đầu phải nhỏ hơn thời gian kết thúc
+      if (task.startTime && task.endTime) {
+        const startMinutes = timeToMinutes(task.startTime)
+        const endMinutes = timeToMinutes(task.endTime)
+        if (startMinutes !== null && endMinutes !== null && startMinutes >= endMinutes) {
+          errors[`${taskKey}_timeRange`] = `Công việc "${task.task.title}": Thời gian bắt đầu phải nhỏ hơn thời gian kết thúc.`
+          hasError = true
+        }
+      }
+    })
+
+    // Validate công việc phát sinh
+    adHocTasks.forEach((task, index) => {
+      const taskKey = `adHoc_${task.id}`
+      
+      // Validate nội dung
+      if (!task.content || !task.content.trim()) {
+        errors[`${taskKey}_content`] = `Công việc phát sinh #${index + 1}: Vui lòng nhập nội dung công việc.`
+        hasError = true
+      }
+      
+      // Validate thời gian bắt đầu
+      if (!task.startTime || !task.startTime.trim()) {
+        errors[`${taskKey}_startTime`] = `Công việc phát sinh #${index + 1}: Vui lòng nhập thời gian bắt đầu.`
+        hasError = true
+      }
+      
+      // Validate thời gian kết thúc
+      if (!task.endTime || !task.endTime.trim()) {
+        errors[`${taskKey}_endTime`] = `Công việc phát sinh #${index + 1}: Vui lòng nhập thời gian kết thúc.`
+        hasError = true
+      }
+      
+      // Validate thời gian bắt đầu phải nhỏ hơn thời gian kết thúc
+      if (task.startTime && task.endTime) {
+        const startMinutes = timeToMinutes(task.startTime)
+        const endMinutes = timeToMinutes(task.endTime)
+        if (startMinutes !== null && endMinutes !== null && startMinutes >= endMinutes) {
+          errors[`${taskKey}_timeRange`] = `Công việc phát sinh #${index + 1}: Thời gian bắt đầu phải nhỏ hơn thời gian kết thúc.`
+          hasError = true
+        }
+      }
+      
+      // Validate điểm tự chấm (nếu có)
+      if (task.selfScore !== null && task.selfScore !== undefined) {
+        if (task.selfScore < 0) {
+          errors[`${taskKey}_selfScore`] = `Công việc phát sinh #${index + 1}: Điểm tự chấm không được nhỏ hơn 0.`
+          hasError = true
+        }
+      }
+    })
+
+    setValidationErrors(errors)
+    
+    // Tạo thông báo lỗi tổng hợp
+    if (hasError) {
+      const errorMessages = Object.values(errors)
+      setError(errorMessages.join('\n'))
+    }
+    
+    return !hasError
+  }
+
+  // Lưu lịch làm việc (thủ công - khi người dùng nhấn nút Lưu)
+  const handleSaveSchedule = async () => {
+    // Clear lỗi cũ
+    setError('')
+    setValidationErrors({})
+
+    // Validate tất cả các trường
+    if (!validateSchedule()) {
       return
     }
 
@@ -439,6 +588,9 @@ const DailyReportPage = () => {
       // Cập nhật snapshot sau khi lưu thành công
       setInitialDataSnapshot(createDataSnapshot(selectedTasks, adHocTasks))
       setHasUserInteraction(false) // Reset tương tác sau khi lưu thành công
+      
+      // Clear validation errors sau khi lưu thành công
+      setValidationErrors({})
       
       setLastSaved(new Date())
       setError('')
@@ -512,8 +664,34 @@ const DailyReportPage = () => {
         
         if (!preserveCurrentData || adHocTasks.length === 0) {
           if (reportToLoad.adHocTasks) {
-            setAdHocTasks(reportToLoad.adHocTasks.map(ah => ({
-              id: ah.id || Date.now() + Math.random(),
+            // Loại bỏ duplicate dựa trên id hoặc (content + startTime + endTime)
+            const seenIds = new Set()
+            const seenContentTime = new Set()
+            const uniqueAdHocTasks = reportToLoad.adHocTasks.filter(ah => {
+              const id = ah.id != null ? Number(ah.id) : null
+              const contentTimeKey = `${ah.content || ''}_${ah.startTime || ''}_${ah.endTime || ''}`
+              
+              // Nếu có id, kiểm tra duplicate theo id
+              if (id != null && !isNaN(id) && id > 0) {
+                if (seenIds.has(id)) {
+                  return false // Duplicate id
+                }
+                seenIds.add(id)
+                return true
+              }
+              
+              // Nếu không có id, kiểm tra duplicate theo content + time
+              if (seenContentTime.has(contentTimeKey)) {
+                return false // Duplicate content + time
+              }
+              seenContentTime.add(contentTimeKey)
+              return true
+            })
+            
+            setAdHocTasks(uniqueAdHocTasks.map(ah => ({
+              // QUAN TRỌNG: Giữ nguyên id từ DB, chỉ tạo id tạm thời nếu thực sự không có id
+              // Điều này đảm bảo không bị duplicate khi gửi báo cáo
+              id: ah.id != null ? Number(ah.id) : Date.now() + Math.random(),
               content: ah.content,
               priority: ah.priority || 'MEDIUM',
               comment: ah.comment || '',
@@ -596,12 +774,14 @@ const DailyReportPage = () => {
       
       // Lọc adHocTaskComments - CHỈ gửi những công việc phát sinh đã tồn tại trong DB (có id số)
       // VÀ phải có trong báo cáo gốc (todayReport)
-      const validAdHocTaskIds = todayReport?.adHocTasks?.map(ah => ah.id).filter(id => id != null) || []
+      const validAdHocTaskIds = todayReport?.adHocTasks?.map(ah => Number(ah.id)).filter(id => id != null && !isNaN(id) && id > 0) || []
       const adHocTaskComments = adHocTasks
         .filter(ah => {
           // Đảm bảo id tồn tại, là số hợp lệ, VÀ có trong báo cáo gốc
+          if (!ah.id) return false
           const id = Number(ah.id)
-          return ah.id != null && !isNaN(id) && id > 0 && validAdHocTaskIds.includes(id)
+          if (isNaN(id) || id <= 0) return false
+          return validAdHocTaskIds.includes(id)
         })
         .map(ah => {
           // Chuyển đổi id sang số để đảm bảo đúng kiểu Long
@@ -615,12 +795,16 @@ const DailyReportPage = () => {
       
       // Xử lý công việc phát sinh mới (không có trong báo cáo gốc)
       // Những công việc này sẽ được thêm vào newAdHocTasks
+      // QUAN TRỌNG: Chỉ lấy những công việc KHÔNG có trong adHocTaskComments để tránh duplicate
+      const adHocTaskCommentIds = new Set(adHocTaskComments.map(ah => ah.adHocTaskId))
       const newAdHocTasks = adHocTasks
         .filter(ah => {
-          // Công việc phát sinh mới: không có id hoặc id không có trong báo cáo gốc
+          // Công việc phát sinh mới: không có id hoặc id không hợp lệ hoặc không có trong báo cáo gốc
           if (!ah.id) return true // Không có id = mới
           const id = Number(ah.id)
-          return isNaN(id) || id <= 0 || !validAdHocTaskIds.includes(id)
+          if (isNaN(id) || id <= 0) return true // Id không hợp lệ = mới
+          // Nếu id không có trong validAdHocTaskIds, đây là công việc mới được thêm sau khi load báo cáo
+          return !validAdHocTaskIds.includes(id) && !adHocTaskCommentIds.has(id)
         })
         .map(ah => ({
           content: ah.content ? ah.content.trim() : '',
@@ -642,35 +826,78 @@ const DailyReportPage = () => {
       }
       
       // Validate: BẮT BUỘC nhập comment cho TẤT CẢ công việc
-      const tasksWithoutComment = taskComments.filter(tc => !tc.comment || tc.comment.trim() === '')
-      const adHocTasksWithoutComment = adHocTaskComments.filter(ah => {
-        const hasComment = ah.comment && ah.comment.trim() !== ''
-        const hasScore = ah.selfScore !== null && ah.selfScore !== undefined
-        return !hasComment && !hasScore
+      const validationErrors = {}
+      let hasError = false
+      
+      // Kiểm tra có ít nhất một công việc để gửi
+      const hasTasksToSend = (taskComments.length > 0) || (adHocTaskComments.length > 0) || (newAdHocTasks.length > 0)
+      if (!hasTasksToSend) {
+        validationErrors.general = 'Vui lòng có ít nhất một công việc để gửi báo cáo.'
+        hasError = true
+      }
+      
+      // Validate comment cho TẤT CẢ công việc thường (kiểm tra trực tiếp từ selectedTasks)
+      selectedTasks.forEach(st => {
+        const taskId = Number(st.taskId)
+        // Chỉ validate những task có trong báo cáo gốc
+        if (st.taskId != null && !isNaN(taskId) && taskId > 0 && validTaskIds.includes(taskId)) {
+          if (!st.comment || st.comment.trim() === '') {
+            const taskKey = `task_${taskId}`
+            validationErrors[`${taskKey}_comment`] = `Công việc "${st.task.title}": Vui lòng nhập báo cáo kết quả.`
+            hasError = true
+          }
+        }
       })
       
-      // Validate công việc phát sinh mới: cũng phải có comment hoặc selfScore
-      const newAdHocTasksWithoutComment = newAdHocTasks.filter(ah => {
-        const hasComment = ah.comment && ah.comment.trim() !== ''
-        const hasScore = ah.selfScore !== null && ah.selfScore !== undefined
-        return !hasComment && !hasScore
+      // Validate comment cho TẤT CẢ công việc phát sinh (kiểm tra trực tiếp từ adHocTasks)
+      adHocTasks.forEach(aht => {
+        if (!aht.id) {
+          // Công việc phát sinh mới (không có id) - phải có comment
+          if (!aht.comment || aht.comment.trim() === '') {
+            const taskKey = `adHoc_new_${aht.content?.substring(0, 20) || 'unknown'}`
+            validationErrors[`${taskKey}_comment`] = `Công việc phát sinh "${aht.content || 'Chưa có nội dung'}": Vui lòng nhập báo cáo kết quả.`
+            hasError = true
+          }
+        } else {
+          const id = Number(aht.id)
+          if (!isNaN(id) && id > 0) {
+            // Công việc phát sinh đã có id
+            if (validAdHocTaskIds.includes(id)) {
+              // Công việc có trong báo cáo gốc - phải có comment
+              if (!aht.comment || aht.comment.trim() === '') {
+                const taskKey = `adHoc_${id}`
+                validationErrors[`${taskKey}_comment`] = `Công việc phát sinh "${aht.content || 'Chưa có nội dung'}": Vui lòng nhập báo cáo kết quả.`
+                hasError = true
+              }
+            } else {
+              // Công việc mới được thêm sau khi load báo cáo - phải có comment
+              if (!aht.comment || aht.comment.trim() === '') {
+                const taskKey = `adHoc_new_${id}`
+                validationErrors[`${taskKey}_comment`] = `Công việc phát sinh "${aht.content || 'Chưa có nội dung'}": Vui lòng nhập báo cáo kết quả.`
+                hasError = true
+              }
+            }
+          } else {
+            // Id không hợp lệ - coi như công việc mới
+            if (!aht.comment || aht.comment.trim() === '') {
+              const taskKey = `adHoc_invalid_${aht.content?.substring(0, 20) || 'unknown'}`
+              validationErrors[`${taskKey}_comment`] = `Công việc phát sinh "${aht.content || 'Chưa có nội dung'}": Vui lòng nhập báo cáo kết quả.`
+              hasError = true
+            }
+          }
+        }
       })
       
-      if (tasksWithoutComment.length > 0 || adHocTasksWithoutComment.length > 0 || newAdHocTasksWithoutComment.length > 0) {
-        let errorMsg = 'Vui lòng nhập báo cáo kết quả cho tất cả công việc trước khi gửi:'
-        if (tasksWithoutComment.length > 0) {
-          errorMsg += `\n- ${tasksWithoutComment.length} công việc đã chọn chưa có báo cáo kết quả`
-        }
-        if (adHocTasksWithoutComment.length > 0) {
-          errorMsg += `\n- ${adHocTasksWithoutComment.length} công việc phát sinh chưa có báo cáo kết quả hoặc điểm tự chấm`
-        }
-        if (newAdHocTasksWithoutComment.length > 0) {
-          errorMsg += `\n- ${newAdHocTasksWithoutComment.length} công việc phát sinh mới chưa có báo cáo kết quả hoặc điểm tự chấm`
-        }
-        setError(errorMsg)
+      if (hasError) {
+        setValidationErrors(validationErrors)
+        const errorMessages = Object.values(validationErrors)
+        setError(errorMessages.join('\n'))
         setLoading(false)
         return
       }
+      
+      // Clear validation errors nếu không có lỗi
+      setValidationErrors({})
       
       // Chuẩn bị dữ liệu gửi - cho phép gửi cả khi không có công việc phát sinh
       const updateData = {
@@ -1053,23 +1280,58 @@ const DailyReportPage = () => {
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Thời gian bắt đầu
+                              Thời gian bắt đầu <span className="text-red-500">*</span>
                             </label>
                             <TimeInput24h
                               value={selectedTask.startTime || ''}
-                              onChange={(value) => handleSelectedTaskChange(selectedTask.taskId, 'startTime', value)}
+                              onChange={(value) => {
+                                handleSelectedTaskChange(selectedTask.taskId, 'startTime', value)
+                                // Clear lỗi khi người dùng nhập
+                                const taskKey = `task_${selectedTask.taskId}`
+                                if (validationErrors[`${taskKey}_startTime`] || validationErrors[`${taskKey}_timeRange`]) {
+                                  const newErrors = { ...validationErrors }
+                                  delete newErrors[`${taskKey}_startTime`]
+                                  delete newErrors[`${taskKey}_timeRange`]
+                                  setValidationErrors(newErrors)
+                                  if (Object.keys(newErrors).length === 0) {
+                                    setError('')
+                                  }
+                                }
+                              }}
                               className="w-full"
                             />
+                            {validationErrors[`task_${selectedTask.taskId}_startTime`] && (
+                              <p className="text-xs text-red-600 mt-1">{validationErrors[`task_${selectedTask.taskId}_startTime`]}</p>
+                            )}
+                            {validationErrors[`task_${selectedTask.taskId}_timeRange`] && (
+                              <p className="text-xs text-red-600 mt-1">{validationErrors[`task_${selectedTask.taskId}_timeRange`]}</p>
+                            )}
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Thời gian kết thúc
+                              Thời gian kết thúc <span className="text-red-500">*</span>
                             </label>
                             <TimeInput24h
                               value={selectedTask.endTime || ''}
-                              onChange={(value) => handleSelectedTaskChange(selectedTask.taskId, 'endTime', value)}
+                              onChange={(value) => {
+                                handleSelectedTaskChange(selectedTask.taskId, 'endTime', value)
+                                // Clear lỗi khi người dùng nhập
+                                const taskKey = `task_${selectedTask.taskId}`
+                                if (validationErrors[`${taskKey}_endTime`] || validationErrors[`${taskKey}_timeRange`]) {
+                                  const newErrors = { ...validationErrors }
+                                  delete newErrors[`${taskKey}_endTime`]
+                                  delete newErrors[`${taskKey}_timeRange`]
+                                  setValidationErrors(newErrors)
+                                  if (Object.keys(newErrors).length === 0) {
+                                    setError('')
+                                  }
+                                }
+                              }}
                               className="w-full"
                             />
+                            {validationErrors[`task_${selectedTask.taskId}_endTime`] && (
+                              <p className="text-xs text-red-600 mt-1">{validationErrors[`task_${selectedTask.taskId}_endTime`]}</p>
+                            )}
                           </div>
                         </div>
                       )}
@@ -1099,11 +1361,30 @@ const DailyReportPage = () => {
                           </label>
                             <textarea
                             value={selectedTask.comment || ''}
-                            onChange={(e) => handleSelectedTaskChange(selectedTask.taskId, 'comment', e.target.value)}
+                            onChange={(e) => {
+                              handleSelectedTaskChange(selectedTask.taskId, 'comment', e.target.value)
+                              // Clear lỗi validation khi người dùng nhập
+                              const taskKey = `task_${selectedTask.taskId}`
+                              if (validationErrors[`${taskKey}_comment`]) {
+                                const newErrors = { ...validationErrors }
+                                delete newErrors[`${taskKey}_comment`]
+                                setValidationErrors(newErrors)
+                                if (Object.keys(newErrors).length === 0) {
+                                  setError('')
+                                }
+                              }
+                            }}
                             placeholder="Nhập báo cáo kết quả về công việc này (bắt buộc)..."
                             rows={3}
-                            className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all resize-none"
+                            className={`w-full px-4 py-2.5 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all resize-none ${
+                              validationErrors[`task_${selectedTask.taskId}_comment`] 
+                                ? 'border-red-500' 
+                                : 'border-gray-300'
+                            }`}
                           />
+                          {validationErrors[`task_${selectedTask.taskId}_comment`] && (
+                            <p className="text-xs text-red-600 mt-1">{validationErrors[`task_${selectedTask.taskId}_comment`]}</p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1201,23 +1482,58 @@ const DailyReportPage = () => {
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Thời gian bắt đầu
+                              Thời gian bắt đầu <span className="text-red-500">*</span>
                             </label>
                             <TimeInput24h
                               value={adHocTask.startTime || ''}
-                              onChange={(value) => handleAdHocTaskChange(adHocTask.id, 'startTime', value)}
+                              onChange={(value) => {
+                                handleAdHocTaskChange(adHocTask.id, 'startTime', value)
+                                // Clear lỗi khi người dùng nhập
+                                const taskKey = `adHoc_${adHocTask.id}`
+                                if (validationErrors[`${taskKey}_startTime`] || validationErrors[`${taskKey}_timeRange`]) {
+                                  const newErrors = { ...validationErrors }
+                                  delete newErrors[`${taskKey}_startTime`]
+                                  delete newErrors[`${taskKey}_timeRange`]
+                                  setValidationErrors(newErrors)
+                                  if (Object.keys(newErrors).length === 0) {
+                                    setError('')
+                                  }
+                                }
+                              }}
                               className="w-full"
                             />
+                            {validationErrors[`adHoc_${adHocTask.id}_startTime`] && (
+                              <p className="text-xs text-red-600 mt-1">{validationErrors[`adHoc_${adHocTask.id}_startTime`]}</p>
+                            )}
+                            {validationErrors[`adHoc_${adHocTask.id}_timeRange`] && (
+                              <p className="text-xs text-red-600 mt-1">{validationErrors[`adHoc_${adHocTask.id}_timeRange`]}</p>
+                            )}
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Thời gian kết thúc
+                              Thời gian kết thúc <span className="text-red-500">*</span>
                             </label>
                             <TimeInput24h
                               value={adHocTask.endTime || ''}
-                              onChange={(value) => handleAdHocTaskChange(adHocTask.id, 'endTime', value)}
+                              onChange={(value) => {
+                                handleAdHocTaskChange(adHocTask.id, 'endTime', value)
+                                // Clear lỗi khi người dùng nhập
+                                const taskKey = `adHoc_${adHocTask.id}`
+                                if (validationErrors[`${taskKey}_endTime`] || validationErrors[`${taskKey}_timeRange`]) {
+                                  const newErrors = { ...validationErrors }
+                                  delete newErrors[`${taskKey}_endTime`]
+                                  delete newErrors[`${taskKey}_timeRange`]
+                                  setValidationErrors(newErrors)
+                                  if (Object.keys(newErrors).length === 0) {
+                                    setError('')
+                                  }
+                                }
+                              }}
                               className="w-full"
                             />
+                            {validationErrors[`adHoc_${adHocTask.id}_endTime`] && (
+                              <p className="text-xs text-red-600 mt-1">{validationErrors[`adHoc_${adHocTask.id}_endTime`]}</p>
+                            )}
                           </div>
                         </div>
                       )}
@@ -1245,14 +1561,35 @@ const DailyReportPage = () => {
                           Nội dung công việc {mode === 'register' && <span className="text-red-500">*</span>}
                         </label>
                         {mode === 'register' ? (
-                          <input
-                            type="text"
-                            value={adHocTask.content}
-                            onChange={(e) => handleAdHocTaskChange(adHocTask.id, 'content', e.target.value)}
-                            placeholder="Nhập nội dung công việc phát sinh..."
-                            className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all"
-                            required
-                          />
+                          <>
+                            <input
+                              type="text"
+                              value={adHocTask.content}
+                              onChange={(e) => {
+                                handleAdHocTaskChange(adHocTask.id, 'content', e.target.value)
+                                // Clear lỗi khi người dùng nhập
+                                const taskKey = `adHoc_${adHocTask.id}`
+                                if (validationErrors[`${taskKey}_content`]) {
+                                  const newErrors = { ...validationErrors }
+                                  delete newErrors[`${taskKey}_content`]
+                                  setValidationErrors(newErrors)
+                                  if (Object.keys(newErrors).length === 0) {
+                                    setError('')
+                                  }
+                                }
+                              }}
+                              placeholder="Nhập nội dung công việc phát sinh..."
+                              className={`w-full px-4 py-2.5 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all ${
+                                validationErrors[`adHoc_${adHocTask.id}_content`] 
+                                  ? 'border-red-500' 
+                                  : 'border-gray-300'
+                              }`}
+                              required
+                            />
+                            {validationErrors[`adHoc_${adHocTask.id}_content`] && (
+                              <p className="text-xs text-red-600 mt-1">{validationErrors[`adHoc_${adHocTask.id}_content`]}</p>
+                            )}
+                          </>
                         ) : (
                           <div className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700">
                             {adHocTask.content}
@@ -1268,11 +1605,30 @@ const DailyReportPage = () => {
                           </label>
                           <textarea
                             value={adHocTask.comment || ''}
-                            onChange={(e) => handleAdHocTaskChange(adHocTask.id, 'comment', e.target.value)}
+                            onChange={(e) => {
+                              handleAdHocTaskChange(adHocTask.id, 'comment', e.target.value)
+                              // Clear lỗi validation khi người dùng nhập
+                              const taskKey = `adHoc_${adHocTask.id}`
+                              if (validationErrors[`${taskKey}_comment`]) {
+                                const newErrors = { ...validationErrors }
+                                delete newErrors[`${taskKey}_comment`]
+                                setValidationErrors(newErrors)
+                                if (Object.keys(newErrors).length === 0) {
+                                  setError('')
+                                }
+                              }
+                            }}
                             placeholder="Nhập báo cáo kết quả về công việc này (bắt buộc)..."
                             rows={3}
-                            className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all resize-none"
+                            className={`w-full px-4 py-2.5 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all resize-none ${
+                              validationErrors[`adHoc_${adHocTask.id}_comment`] 
+                                ? 'border-red-500' 
+                                : 'border-gray-300'
+                            }`}
                           />
+                          {validationErrors[`adHoc_${adHocTask.id}_comment`] && (
+                            <p className="text-xs text-red-600 mt-1">{validationErrors[`adHoc_${adHocTask.id}_comment`]}</p>
+                          )}
                         </div>
                       )}
 
@@ -1286,11 +1642,30 @@ const DailyReportPage = () => {
                           step="0.5"
                           min="0"
                           value={adHocTask.selfScore || ''}
-                          onChange={(e) => handleAdHocTaskChange(adHocTask.id, 'selfScore', e.target.value ? parseFloat(e.target.value) : null)}
+                          onChange={(e) => {
+                            handleAdHocTaskChange(adHocTask.id, 'selfScore', e.target.value ? parseFloat(e.target.value) : null)
+                            // Clear lỗi khi người dùng nhập
+                            const taskKey = `adHoc_${adHocTask.id}`
+                            if (validationErrors[`${taskKey}_selfScore`]) {
+                              const newErrors = { ...validationErrors }
+                              delete newErrors[`${taskKey}_selfScore`]
+                              setValidationErrors(newErrors)
+                              if (Object.keys(newErrors).length === 0) {
+                                setError('')
+                              }
+                            }
+                          }}
                           placeholder="Ví dụ: 2.5 (tương đương 2.5 giờ = 2.5 điểm)"
-                          className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all"
+                          className={`w-full px-4 py-2.5 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium shadow-sm transition-all ${
+                            validationErrors[`adHoc_${adHocTask.id}_selfScore`] 
+                              ? 'border-red-500' 
+                              : 'border-gray-300'
+                          }`}
                           required={mode === 'report'}
                         />
+                        {validationErrors[`adHoc_${adHocTask.id}_selfScore`] && (
+                          <p className="text-xs text-red-600 mt-1">{validationErrors[`adHoc_${adHocTask.id}_selfScore`]}</p>
+                        )}
                         <p className="text-xs text-gray-500 mt-1">Điểm tính bằng giờ (ví dụ: 2.5 giờ = 2.5 điểm)</p>
                       </div>
                     </div>

@@ -91,18 +91,13 @@ const AdHocTasksPage = () => {
 
   const getFilteredTasks = () => {
     if (filter === 'pending') {
-      // Chưa được xử lý (chưa có evaluation hoặc approved = false và chưa có approvedScore)
-      // Thực tế không thể phân biệt rõ giữa pending và rejected nếu không có rating/comment
-      // Nên coi tất cả task chưa approved là pending
-      return adHocTasks.filter(task => !task.approved)
+      // Chưa được xử lý: chưa có evaluation record
+      return adHocTasks.filter(task => !task.approved && !task.hasEvaluation)
     } else if (filter === 'approved') {
       return adHocTasks.filter(task => task.approved)
     } else if (filter === 'rejected') {
-      // Đã được xử lý nhưng không được duyệt
-      // Vì không còn rating/comment, nên không thể phân biệt rõ rejected
-      // Tạm thời trả về mảng rỗng hoặc filter theo logic khác
-      // Có thể kiểm tra xem có evaluation record không (nếu backend trả về field này)
-      return []
+      // Đã được xử lý nhưng không được duyệt: có evaluation record và approved = false
+      return adHocTasks.filter(task => !task.approved && task.hasEvaluation)
     }
     return adHocTasks
   }
@@ -178,7 +173,7 @@ const AdHocTasksPage = () => {
                 : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
           >
-            Chờ duyệt ({adHocTasks.filter(t => !t.approved).length})
+            Chờ duyệt ({adHocTasks.filter(t => !t.approved && !t.hasEvaluation).length})
           </button>
           <button
             type="button"
@@ -200,7 +195,7 @@ const AdHocTasksPage = () => {
                 : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
           >
-            Từ chối (0)
+            Từ chối ({adHocTasks.filter(t => !t.approved && t.hasEvaluation).length})
           </button>
           <button
             type="button"
@@ -223,7 +218,8 @@ const AdHocTasksPage = () => {
         ) : (
           <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-4">
             {filteredTasks.map((task) => {
-              const isPending = !task.approved
+              const isPending = !task.approved && !task.hasEvaluation
+              const isRejected = !task.approved && task.hasEvaluation
               
               return (
                 <div
@@ -231,7 +227,9 @@ const AdHocTasksPage = () => {
                   className={`border rounded-lg p-5 shadow-sm transition-all hover:shadow-md flex flex-col h-full ${
                     task.approved 
                       ? 'bg-green-50 border-green-200' 
-                      : 'bg-white border-gray-200'
+                      : isRejected
+                        ? 'bg-red-50 border-red-200'
+                        : 'bg-white border-gray-200'
                   }`}
                 >
                   <div className="flex items-start justify-between mb-3 flex-shrink-0">
@@ -246,6 +244,11 @@ const AdHocTasksPage = () => {
                         {isPending && (
                           <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-full">
                             Chờ duyệt
+                          </span>
+                        )}
+                        {isRejected && (
+                          <span className="px-2 py-1 bg-red-100 text-red-800 text-xs font-medium rounded-full">
+                            Từ chối
                           </span>
                         )}
                       </div>
@@ -314,6 +317,22 @@ const AdHocTasksPage = () => {
                             Hủy
                           </button>
                         </>
+                      )}
+                      {isRejected && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEvaluatingTask(task)
+                            setEvaluationData({
+                              approved: false,
+                              approvedScore: task.selfScore || null
+                            })
+                          }}
+                          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-500/50 active:scale-95 transition-all duration-200"
+                        >
+                          <CheckIcon className="w-4 h-4" />
+                          Duyệt
+                        </button>
                       )}
                     </div>
                     {isPending && (
