@@ -16,6 +16,8 @@ const EditTaskModal = ({ isOpen, onClose, task, onUpdate }) => {
     actualTimeUnit: '', // 'MINUTES', 'HOURS', 'DAYS', 'MONTHS'
     actualTimeValue: '' // Giá trị số
   })
+  const [departmentUsers, setDepartmentUsers] = useState({}) // Map departmentId -> users
+  const [loadingDepartmentUsers, setLoadingDepartmentUsers] = useState({}) // Map departmentId -> loading state
   const [departments, setDepartments] = useState([])
   const [allUsers, setAllUsers] = useState([]) // Tất cả users (cho mode direct)
   const [loadingAllUsers, setLoadingAllUsers] = useState(false)
@@ -23,6 +25,22 @@ const EditTaskModal = ({ isOpen, onClose, task, onUpdate }) => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [validationErrors, setValidationErrors] = useState({})
+
+  const loadUsersForDepartment = async (departmentId) => {
+    if (!departmentId || departmentUsers[departmentId]) return // Đã load rồi thì không load lại
+
+    try {
+      setLoadingDepartmentUsers(prev => ({ ...prev, [departmentId]: true }))
+      const response = await departmentService.getUsersWithDetailsByDepartmentId(departmentId)
+      const users = response.data?.result || []
+      setDepartmentUsers(prev => ({ ...prev, [departmentId]: users }))
+    } catch (err) {
+      console.error(`Error loading users for department ${departmentId}:`, err)
+      setDepartmentUsers(prev => ({ ...prev, [departmentId]: [] }))
+    } finally {
+      setLoadingDepartmentUsers(prev => ({ ...prev, [departmentId]: false }))
+    }
+  }
 
   useEffect(() => {
     if (isOpen && task) {
@@ -61,11 +79,18 @@ const EditTaskModal = ({ isOpen, onClose, task, onUpdate }) => {
         actualTimeUnit: timeUnit,
         actualTimeValue: timeValue
       })
+      setDepartmentUsers({})
+      setLoadingDepartmentUsers({})
       loadDepartments()
       
       // Load users nếu mode là direct
       if (mode === 'direct' && taskUserIds.length > 0) {
         loadAllUsers()
+      }
+
+      // Preload users cho các phòng ban đã chọn để hiển thị ngay
+      if (mode === 'department' && taskDeptIds.length > 0) {
+        Promise.all(taskDeptIds.map(deptId => loadUsersForDepartment(parseInt(deptId)))).catch(() => {})
       }
     }
   }, [isOpen, task])
@@ -185,7 +210,7 @@ const EditTaskModal = ({ isOpen, onClose, task, onUpdate }) => {
         startDate: formData.startDate ? new Date(formData.startDate).toISOString() : null,
         endDate: formData.endDate ? new Date(formData.endDate).toISOString() : null,
         departmentIds: assignmentMode === 'department' ? formData.departmentIds.map(id => parseInt(id)) : [],
-        userIds: assignmentMode === 'direct' && formData.userIds.length > 0 ? formData.userIds.map(id => parseInt(id)) : null
+        userIds: formData.userIds.length > 0 ? formData.userIds.map(id => parseInt(id)) : null
       }
       
       // Xử lý thời gian định mức
@@ -219,15 +244,18 @@ const EditTaskModal = ({ isOpen, onClose, task, onUpdate }) => {
   const handleDepartmentToggle = (deptId) => {
     const deptIdStr = String(deptId)
     if (formData.departmentIds.includes(deptIdStr)) {
+      const deptUsers = departmentUsers[parseInt(deptIdStr)] || []
       setFormData({
         ...formData,
-        departmentIds: formData.departmentIds.filter(id => id !== deptIdStr)
+        departmentIds: formData.departmentIds.filter(id => id !== deptIdStr),
+        userIds: formData.userIds.filter(userId => !deptUsers.some(u => String(u.userId) === String(userId)))
       })
     } else {
       setFormData({
         ...formData,
         departmentIds: [...formData.departmentIds, deptIdStr]
       })
+      loadUsersForDepartment(parseInt(deptIdStr))
     }
   }
 
@@ -471,6 +499,87 @@ const EditTaskModal = ({ isOpen, onClose, task, onUpdate }) => {
             {validationErrors.departmentIds && (
               <p className="mt-2 text-sm text-red-600">{validationErrors.departmentIds}</p>
             )}
+          </div>
+        )}
+
+        {/* Hiển thị danh sách nhân viên từ các phòng ban đã chọn (chỉ khi mode = department) */}
+        {assignmentMode === 'department' && formData.departmentIds.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Chọn nhân viên (tùy chọn)
+            </label>
+            <div className="border border-gray-300 rounded-lg p-4 max-h-60 overflow-y-auto">
+              <div className="space-y-4">
+                {formData.departmentIds.map((deptIdStr) => {
+                  const deptId = parseInt(deptIdStr)
+                  const dept = departments.find(d => d.departmentId === deptId)
+                  const users = departmentUsers[deptId] || []
+                  const isLoadingDeptUsers = loadingDepartmentUsers[deptId]
+
+                  return (
+                    <div key={deptId} className="border-b border-gray-200 pb-3 last:border-b-0 last:pb-0">
+                      <div className="font-medium text-sm text-gray-700 mb-2">
+                        {dept?.departmentName}
+                      </div>
+                      {isLoadingDeptUsers ? (
+                        <div className="text-sm text-gray-500 py-2">Đang tải...</div>
+                      ) : users.length === 0 ? (
+                        <div className="text-sm text-gray-500 py-2">Không có nhân viên nào</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {users.map((user) => {
+                            const isManager = user.roles && user.roles.includes('MANAGER')
+                            const userIdStr = String(user.userId)
+                            const isSelected = formData.userIds.includes(userIdStr)
+
+                            return (
+                              <label
+                                key={user.userId}
+                                className={`flex items-center space-x-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors ${
+                                  isSelected ? 'bg-blue-50' : ''
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setFormData({
+                                        ...formData,
+                                        userIds: [...formData.userIds, userIdStr]
+                                      })
+                                    } else {
+                                      setFormData({
+                                        ...formData,
+                                        userIds: formData.userIds.filter(id => id !== userIdStr)
+                                      })
+                                    }
+                                  }}
+                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                                />
+                                <div className="flex-1">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {user.fullName}
+                                    </span>
+                                    {isManager && (
+                                      <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                                        Trưởng phòng
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-xs text-gray-500">@{user.userName}</span>
+                                </div>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           </div>
         )}
 

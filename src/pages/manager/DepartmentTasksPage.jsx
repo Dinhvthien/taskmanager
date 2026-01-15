@@ -44,6 +44,15 @@ const DepartmentTasksPage = () => {
   // Xác định basePath dựa trên location
   const basePath = location.pathname.startsWith('/director') ? '/director' : '/manager'
 
+  const formatNormTime = (taskData) => {
+    if (!taskData) return 'Chưa có'
+    if (taskData.actualMinutes != null && taskData.actualMinutes > 0) return `${taskData.actualMinutes} phút`
+    if (taskData.actualHours != null && taskData.actualHours > 0) return `${taskData.actualHours} giờ`
+    if (taskData.actualDays != null && taskData.actualDays > 0) return `${taskData.actualDays} ngày`
+    if (taskData.actualMonths != null && taskData.actualMonths > 0) return `${taskData.actualMonths} tháng`
+    return 'Chưa có'
+  }
+
   useEffect(() => {
     loadDepartments()
     loadUserRole()
@@ -511,6 +520,14 @@ const DepartmentTasksPage = () => {
                               </div>
                             </div>
                           )}
+
+                          {/* Thời gian định mức */}
+                          <div className={`flex items-center space-x-2 ${isOverdue ? 'text-gray-300' : 'text-gray-600'}`}>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>Định mức: {formatNormTime(task)}</span>
+                          </div>
 
                           {/* Người phụ trách */}
                           {task.assignedUserNames && task.assignedUserNames.length > 0 && (

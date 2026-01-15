@@ -145,7 +145,7 @@ const AdHocTasksPage = () => {
       })
       loadAdHocTasks() // Reload danh sách
     } catch (err) {
-      setError(err.response?.data?.message || 'Lỗi khi cập nhật điểm tự chấm')
+      setError(err.response?.data?.message || 'Lỗi khi cập nhật thời gian định mức')
     }
   }
 
@@ -282,7 +282,7 @@ const AdHocTasksPage = () => {
                           </p>
                         )}
                         <p className="flex items-center gap-2">
-                          <span className="font-medium">Điểm tự chấm:</span>
+                          <span className="font-medium">Thời gian định mức:</span>
                           <span>{task.selfScore ? `${task.selfScore} giờ` : 'Chưa có'}</span>
                         </p>
                         {task.approved && task.approvedScore && (
@@ -363,7 +363,7 @@ const AdHocTasksPage = () => {
           <Modal
             isOpen={!!editingTask}
             onClose={() => setEditingTask(null)}
-            title="Chỉnh sửa điểm tự chấm"
+            title="Chỉnh sửa thời gian định mức"
             size="md"
           >
             <div className="space-y-4">
@@ -393,7 +393,7 @@ const AdHocTasksPage = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Điểm tự chấm (giờ) <span className="text-red-500">*</span>
+                  Thời gian định mức (giờ) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -401,11 +401,11 @@ const AdHocTasksPage = () => {
                   min="0"
                   value={editFormData.selfScore || ''}
                   onChange={(e) => setEditFormData({ ...editFormData, selfScore: e.target.value ? parseFloat(e.target.value) : null })}
-                  placeholder="Nhập điểm tự chấm (ví dụ: 2.5)"
+                  placeholder="Nhập thời gian định mức (ví dụ: 2.5)"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">Điểm tính bằng giờ (ví dụ: 2.5 giờ = 2.5 điểm)</p>
+                <p className="text-xs text-gray-500 mt-1">Nhập theo giờ (ví dụ: 2.5 giờ)</p>
               </div>
 
               <div className="flex justify-end gap-3 pt-4">
@@ -468,7 +468,7 @@ const AdHocTasksPage = () => {
                         : 'N/A'
                     }</p>
                   )}
-                  <p><strong>Điểm tự chấm:</strong> {evaluatingTask.selfScore ? `${evaluatingTask.selfScore} giờ` : 'Chưa có'}</p>
+                  <p><strong>Thời gian định mức:</strong> {evaluatingTask.selfScore ? `${evaluatingTask.selfScore} giờ` : 'Chưa có'}</p>
                   {evaluatingTask.comment && (
                     <p><strong>Comment:</strong> {evaluatingTask.comment}</p>
                   )}

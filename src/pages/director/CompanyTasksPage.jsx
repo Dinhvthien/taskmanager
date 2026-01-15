@@ -16,6 +16,15 @@ import { TASK_STATUS_LABELS, TASK_STATUS_COLORS } from '../../utils/constants'
 import { formatDate, formatDateTime } from '../../utils/dateFormat'
 
 const CompanyTasksPage = ({ showDeleted = false }) => {
+  const formatNormTime = (taskData) => {
+    if (!taskData) return 'Chưa có'
+    if (taskData.actualMinutes != null && taskData.actualMinutes > 0) return `${taskData.actualMinutes} phút`
+    if (taskData.actualHours != null && taskData.actualHours > 0) return `${taskData.actualHours} giờ`
+    if (taskData.actualDays != null && taskData.actualDays > 0) return `${taskData.actualDays} ngày`
+    if (taskData.actualMonths != null && taskData.actualMonths > 0) return `${taskData.actualMonths} tháng`
+    return 'Chưa có'
+  }
+
   const [tasks, setTasks] = useState([])
   const [recurringTasks, setRecurringTasks] = useState([])
   const [taskGroups, setTaskGroups] = useState([]) // Nhóm task theo recurring task
@@ -1278,6 +1287,17 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
                     </div>
                   </div>
 
+                  {/* Thời gian định mức */}
+                  <div className="mb-2">
+                    <div className="flex items-center space-x-1.5">
+                      <svg className={`w-3.5 h-3.5 ${getSubTextColor()} flex-shrink-0`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className={`text-xs font-medium ${getSubTextColor()} whitespace-nowrap`}>Định mức:</span>
+                      <span className={`text-xs font-semibold ${getTextColor()} truncate`}>{formatNormTime(task)}</span>
+                    </div>
+                  </div>
+
                   {/* Waiting Reason - Hiển thị khi task có status WAITING */}
                   {(task.status === 'WAITING' || (task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0)) && (
                     <div className="mb-2">
@@ -1419,18 +1439,20 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
                       </>
                     ) : (
                       <>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleEditClick(task, e)
-                          }}
-                          className="flex items-center space-x-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors text-xs font-medium"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                          <span>Chỉnh sửa</span>
-                        </button>
+                        {statusFilter !== 'COMPLETED' && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEditClick(task, e)
+                            }}
+                            className="flex items-center space-x-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors text-xs font-medium"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                            <span>Chỉnh sửa</span>
+                          </button>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
@@ -1579,6 +1601,14 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
                           </div>
                         )}
 
+                    {/* Thời gian định mức */}
+                    <div className={`flex items-center space-x-2 ${isOverdue ? 'text-gray-300' : 'text-gray-600'}`}>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span>Định mức: {formatNormTime(task)}</span>
+                    </div>
+
                         {/* Tiến độ */}
                         <div className="flex items-center space-x-2">
                           <div className={`w-24 rounded-full h-2 ${isOverdue ? 'bg-gray-700' : 'bg-gray-200'}`}>
@@ -1653,15 +1683,17 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
                         </>
                       ) : (
                         <>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleEditClick(task, e)
-                            }}
-                            className="px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
-                          >
-                            Chỉnh sửa
-                          </button>
+                          {statusFilter !== 'COMPLETED' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleEditClick(task, e)
+                              }}
+                              className="px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                            >
+                              Chỉnh sửa
+                            </button>
+                          )}
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
@@ -1680,16 +1712,18 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
                           >
                             Chi tiết
                           </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedTaskForDelete(task)
-                              setShowDeleteModal(true)
-                            }}
-                            className="px-3 py-1.5 text-sm font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
-                          >
-                            Xóa
-                          </button>
+                          {statusFilter !== 'COMPLETED' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedTaskForDelete(task)
+                                setShowDeleteModal(true)
+                              }}
+                              className="px-3 py-1.5 text-sm font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                            >
+                              Xóa
+                            </button>
+                          )}
                         </>
                       )}
                     </div>

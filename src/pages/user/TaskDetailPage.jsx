@@ -1065,6 +1065,24 @@ const TaskDetailPage = ({ basePath }) => {
     return formatDateTime(dateString)
   }
 
+  const formatNormTime = (taskData) => {
+    if (!taskData) return 'Chưa có'
+
+    if (taskData.actualMinutes != null && taskData.actualMinutes > 0) {
+      return `${taskData.actualMinutes} phút`
+    }
+    if (taskData.actualHours != null && taskData.actualHours > 0) {
+      return `${taskData.actualHours} giờ`
+    }
+    if (taskData.actualDays != null && taskData.actualDays > 0) {
+      return `${taskData.actualDays} ngày`
+    }
+    if (taskData.actualMonths != null && taskData.actualMonths > 0) {
+      return `${taskData.actualMonths} tháng`
+    }
+    return 'Chưa có'
+  }
+
   if (loading) return <LoadingSpinner />
 
   if (!task) {
@@ -1583,6 +1601,19 @@ const TaskDetailPage = ({ basePath }) => {
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Ngày kết thúc</p>
                   <p className="text-sm font-semibold text-gray-900 mt-1">{formatDate(task.endDate)}</p>
+                </div>
+              </div>
+
+              {/* Thời gian định mức */}
+              <div key="norm-time" className="flex items-start space-x-3 p-3 bg-white rounded-lg shadow-sm">
+                <div className="flex-shrink-0 w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Thời gian định mức</p>
+                  <p className="text-sm font-semibold text-gray-900 mt-1">{formatNormTime(task)}</p>
                 </div>
               </div>
 
