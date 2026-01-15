@@ -55,6 +55,8 @@ const DailyReportPage = () => {
   const [autoSaveTimeout, setAutoSaveTimeout] = useState(null)
   // Lưu trữ snapshot dữ liệu ban đầu để so sánh
   const [initialDataSnapshot, setInitialDataSnapshot] = useState(null)
+  // Theo dõi xem người dùng đã tương tác với form chưa (thêm/xóa/sửa)
+  const [hasUserInteraction, setHasUserInteraction] = useState(false)
   // Ngày được chọn để đăng ký lịch làm việc (mặc định là hôm nay)
   const [selectedDate, setSelectedDate] = useState(today.toISOString().split('T')[0])
 
@@ -175,6 +177,7 @@ const DailyReportPage = () => {
   }
 
   const handleTaskToggle = (task) => {
+    setHasUserInteraction(true)
     setSelectedTasks(prev => {
       const existingIndex = prev.findIndex(st => st.taskId === task.taskId)
       if (existingIndex >= 0) {
@@ -196,16 +199,19 @@ const DailyReportPage = () => {
   }
 
   const handleSelectedTaskChange = (taskId, field, value) => {
+    setHasUserInteraction(true)
     setSelectedTasks(prev => prev.map(st => 
       st.taskId === taskId ? { ...st, [field]: value } : st
     ))
   }
 
   const handleRemoveSelectedTask = (taskId) => {
+    setHasUserInteraction(true)
     setSelectedTasks(prev => prev.filter(st => st.taskId !== taskId))
   }
 
   const handleAddAdHocTask = () => {
+    setHasUserInteraction(true)
     setAdHocTasks(prev => [...prev, {
       id: Date.now(),
       content: '',
@@ -218,10 +224,12 @@ const DailyReportPage = () => {
   }
 
   const handleRemoveAdHocTask = (id) => {
+    setHasUserInteraction(true)
     setAdHocTasks(prev => prev.filter(task => task.id !== id))
   }
 
   const handleAdHocTaskChange = (id, field, value) => {
+    setHasUserInteraction(true)
     setAdHocTasks(prev => prev.map(task => 
       task.id === id ? { ...task, [field]: value } : task
     ))
@@ -229,6 +237,7 @@ const DailyReportPage = () => {
 
   // Hàm thêm công việc phát sinh tại thời gian cụ thể
   const handleAddAdHocAtTime = (startTime, endTime) => {
+    setHasUserInteraction(true)
     setAdHocTasks(prev => [...prev, {
       id: Date.now(),
       content: '',
@@ -266,6 +275,11 @@ const DailyReportPage = () => {
 
   // Kiểm tra xem có thay đổi so với dữ liệu ban đầu không
   const hasChanges = () => {
+    // Nếu người dùng đã tương tác và có dữ liệu, luôn coi như có thay đổi
+    if (hasUserInteraction && (selectedTasks.length > 0 || adHocTasks.length > 0)) {
+      return true
+    }
+    
     if (!initialDataSnapshot) {
       // Nếu chưa có snapshot, có nghĩa là chưa load dữ liệu hoặc đã clear
       // Nếu có dữ liệu thì coi như có thay đổi (cần lưu)
@@ -341,6 +355,7 @@ const DailyReportPage = () => {
           
           // Lưu snapshot dữ liệu ban đầu sau khi load
           setInitialDataSnapshot(createDataSnapshot(loadedTasks, loadedAdHocTasks))
+          setHasUserInteraction(false) // Reset tương tác khi load dữ liệu mới
         }
       } else {
         // Không có báo cáo nào - chỉ reset nếu không preserve dữ liệu hiện tại
@@ -350,6 +365,7 @@ const DailyReportPage = () => {
           setSelectedTasks([])
           setAdHocTasks([])
           setInitialDataSnapshot(null) // Clear snapshot khi không có báo cáo
+          setHasUserInteraction(false) // Reset tương tác khi không có báo cáo
         }
       }
     } catch (err) {
@@ -422,6 +438,7 @@ const DailyReportPage = () => {
       
       // Cập nhật snapshot sau khi lưu thành công
       setInitialDataSnapshot(createDataSnapshot(selectedTasks, adHocTasks))
+      setHasUserInteraction(false) // Reset tương tác sau khi lưu thành công
       
       setLastSaved(new Date())
       setError('')

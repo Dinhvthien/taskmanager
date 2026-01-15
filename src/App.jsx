@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import AuthLayout from './layouts/AuthLayout'
 import SuperAdminLayout from './layouts/SuperAdminLayout'
@@ -35,8 +36,31 @@ import TaskDetailPage from './pages/user/TaskDetailPage'
 import NotificationHistoryPage from './pages/NotificationHistoryPage'
 import ProfilePage from './pages/ProfilePage'
 import MessagingPage from './pages/MessagingPage'
+import api from './services/api'
 
 function App() {
+  // Check system health when app loads
+  useEffect(() => {
+    const checkSystemHealth = async () => {
+      try {
+        // Try to call health endpoint or a simple public endpoint
+        // If server returns 503, redirect to maintenance page
+        await api.get('/actuator/health', {
+          validateStatus: (status) => status < 500 || status === 503
+        })
+      } catch (error) {
+        // If error response status is 503, redirect to maintenance page
+        if (error.response?.status === 503) {
+          window.location.href = '/maintenance.html'
+          return
+        }
+        // Ignore other errors (network errors, 401, 404, etc.) to allow app to continue
+      }
+    }
+
+    checkSystemHealth()
+  }, [])
+
   return (
     <BrowserRouter>
       <Routes>

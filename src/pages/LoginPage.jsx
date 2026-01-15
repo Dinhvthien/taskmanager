@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
@@ -14,6 +14,28 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const navigate = useNavigate()
+
+  // Check system health when component mounts
+  useEffect(() => {
+    const checkSystemHealth = async () => {
+      try {
+        // Try to call health endpoint or a simple public endpoint
+        // If server returns 503, redirect to maintenance page
+        await api.get('/actuator/health', {
+          validateStatus: (status) => status < 500 || status === 503
+        })
+      } catch (error) {
+        // If error response status is 503, redirect to maintenance page
+        if (error.response?.status === 503) {
+          window.location.href = '/maintenance.html'
+          return
+        }
+        // Ignore other errors (network errors, 401, 404, etc.) to allow login page to display
+      }
+    }
+
+    checkSystemHealth()
+  }, [])
 
   const handleChange = (e) => {
     setFormData({

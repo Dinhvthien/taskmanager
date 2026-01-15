@@ -20,8 +20,6 @@ const AdHocTasksPage = () => {
     selfScore: null
   })
   const [evaluationData, setEvaluationData] = useState({
-    rating: 'GOOD',
-    comment: '',
     approved: false,
     approvedScore: null
   })
@@ -54,8 +52,6 @@ const AdHocTasksPage = () => {
       setError('')
       const data = {
         adHocTaskId: adHocTask.adHocTaskId,
-        rating: evaluationData.rating,
-        comment: evaluationData.comment || '',
         approved: true,
         approvedScore: evaluationData.approvedScore
       }
@@ -63,8 +59,6 @@ const AdHocTasksPage = () => {
       await directorEvaluationService.saveAdHocTaskEvaluation(adHocTask.reportId, data)
       setEvaluatingTask(null)
       setEvaluationData({
-        rating: 'GOOD',
-        comment: '',
         approved: false,
         approvedScore: null
       })
@@ -79,8 +73,6 @@ const AdHocTasksPage = () => {
       setError('')
       const data = {
         adHocTaskId: adHocTask.adHocTaskId,
-        rating: evaluationData.rating,
-        comment: evaluationData.comment || '',
         approved: false,
         approvedScore: null
       }
@@ -88,26 +80,29 @@ const AdHocTasksPage = () => {
       await directorEvaluationService.saveAdHocTaskEvaluation(adHocTask.reportId, data)
       setEvaluatingTask(null)
       setEvaluationData({
-        rating: 'GOOD',
-        comment: '',
         approved: false,
         approvedScore: null
       })
       loadAdHocTasks() // Reload danh sách
     } catch (err) {
-      setError(err.response?.data?.message || 'Lỗi khi đánh giá công việc phát sinh')
+      setError(err.response?.data?.message || 'Lỗi khi từ chối công việc phát sinh')
     }
   }
 
   const getFilteredTasks = () => {
     if (filter === 'pending') {
-      // Chưa được đánh giá (không có directorRating và directorComment)
-      return adHocTasks.filter(task => !task.approved && !task.directorRating && !task.directorComment)
+      // Chưa được xử lý (chưa có evaluation hoặc approved = false và chưa có approvedScore)
+      // Thực tế không thể phân biệt rõ giữa pending và rejected nếu không có rating/comment
+      // Nên coi tất cả task chưa approved là pending
+      return adHocTasks.filter(task => !task.approved)
     } else if (filter === 'approved') {
       return adHocTasks.filter(task => task.approved)
     } else if (filter === 'rejected') {
-      // Đã được đánh giá nhưng không được duyệt (có directorRating hoặc directorComment nhưng approved = false)
-      return adHocTasks.filter(task => !task.approved && (task.directorRating || task.directorComment))
+      // Đã được xử lý nhưng không được duyệt
+      // Vì không còn rating/comment, nên không thể phân biệt rõ rejected
+      // Tạm thời trả về mảng rỗng hoặc filter theo logic khác
+      // Có thể kiểm tra xem có evaluation record không (nếu backend trả về field này)
+      return []
     }
     return adHocTasks
   }
@@ -121,8 +116,6 @@ const AdHocTasksPage = () => {
       setError('')
       const data = {
         adHocTaskId: adHocTask.adHocTaskId,
-        rating: 'AVERAGE',
-        comment: 'Từ chối',
         approved: false,
         approvedScore: null
       }
@@ -161,26 +154,6 @@ const AdHocTasksPage = () => {
     }
   }
 
-  const getRatingLabel = (rating) => {
-    const ratingMap = {
-      'EXCELLENT': 'Xuất sắc',
-      'GOOD': 'Tốt',
-      'AVERAGE': 'Trung bình',
-      'POOR': 'Kém'
-    }
-    return ratingMap[rating] || rating
-  }
-
-  const getRatingColor = (rating) => {
-    const colorMap = {
-      'EXCELLENT': 'bg-green-100 text-green-800 border-green-300',
-      'GOOD': 'bg-blue-100 text-blue-800 border-blue-300',
-      'AVERAGE': 'bg-yellow-100 text-yellow-800 border-yellow-300',
-      'POOR': 'bg-red-100 text-red-800 border-red-300'
-    }
-    return colorMap[rating] || 'bg-gray-100 text-gray-800 border-gray-300'
-  }
-
   if (loading) {
     return <LoadingSpinner />
   }
@@ -205,7 +178,7 @@ const AdHocTasksPage = () => {
                 : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
           >
-            Chờ duyệt ({adHocTasks.filter(t => !t.approved && !t.directorRating && !t.directorComment).length})
+            Chờ duyệt ({adHocTasks.filter(t => !t.approved).length})
           </button>
           <button
             type="button"
@@ -227,7 +200,7 @@ const AdHocTasksPage = () => {
                 : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
           >
-            Từ chối ({adHocTasks.filter(t => !t.approved && (t.directorRating || t.directorComment)).length})
+            Từ chối (0)
           </button>
           <button
             type="button"
@@ -250,8 +223,7 @@ const AdHocTasksPage = () => {
         ) : (
           <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-4">
             {filteredTasks.map((task) => {
-              const isRejected = !task.approved && (task.directorRating || task.directorComment)
-              const isPending = !task.approved && !task.directorRating && !task.directorComment
+              const isPending = !task.approved
               
               return (
                 <div
@@ -259,9 +231,7 @@ const AdHocTasksPage = () => {
                   className={`border rounded-lg p-5 shadow-sm transition-all hover:shadow-md flex flex-col h-full ${
                     task.approved 
                       ? 'bg-green-50 border-green-200' 
-                      : isRejected 
-                        ? 'bg-red-50 border-red-200' 
-                        : 'bg-white border-gray-200'
+                      : 'bg-white border-gray-200'
                   }`}
                 >
                   <div className="flex items-start justify-between mb-3 flex-shrink-0">
@@ -271,11 +241,6 @@ const AdHocTasksPage = () => {
                         {task.approved && (
                           <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
                             Đã duyệt
-                          </span>
-                        )}
-                        {isRejected && (
-                          <span className="px-2 py-1 bg-red-100 text-red-800 text-xs font-medium rounded-full">
-                            Từ chối
                           </span>
                         )}
                         {isPending && (
@@ -323,20 +288,6 @@ const AdHocTasksPage = () => {
                             <span className="font-semibold">{task.approvedScore} giờ</span>
                           </p>
                         )}
-                        {task.directorRating && (
-                          <p className="flex items-center gap-2">
-                            <span className="font-medium">Đánh giá:</span>
-                            <span className={`px-2 py-1 rounded text-xs font-medium border ${getRatingColor(task.directorRating)}`}>
-                              {getRatingLabel(task.directorRating)}
-                            </span>
-                          </p>
-                        )}
-                        {task.directorComment && (
-                          <p className="flex items-start gap-2">
-                            <span className="font-medium">Ghi chú GĐ:</span>
-                            <span className="flex-1">{task.directorComment}</span>
-                          </p>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -364,24 +315,6 @@ const AdHocTasksPage = () => {
                           </button>
                         </>
                       )}
-                      {isRejected && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEvaluatingTask(task)
-                            setEvaluationData({
-                              rating: task.directorRating || 'GOOD',
-                              comment: task.directorComment || '',
-                              approved: false,
-                              approvedScore: task.selfScore || null
-                            })
-                          }}
-                          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-500/50 active:scale-95 transition-all duration-200"
-                        >
-                          <CheckIcon className="w-4 h-4" />
-                          Duyệt
-                        </button>
-                      )}
                     </div>
                     {isPending && (
                       <button
@@ -389,8 +322,6 @@ const AdHocTasksPage = () => {
                         onClick={() => {
                           setEvaluatingTask(task)
                           setEvaluationData({
-                            rating: 'GOOD',
-                            comment: '',
                             approved: false,
                             approvedScore: task.selfScore || null
                           })
@@ -493,8 +424,6 @@ const AdHocTasksPage = () => {
             onClose={() => {
               setEvaluatingTask(null)
               setEvaluationData({
-                rating: 'GOOD',
-                comment: '',
                 approved: false,
                 approvedScore: null
               })
@@ -530,35 +459,6 @@ const AdHocTasksPage = () => {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Đánh giá
-                  </label>
-                  <select
-                    value={evaluationData.rating}
-                    onChange={(e) => setEvaluationData({ ...evaluationData, rating: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="EXCELLENT">Xuất sắc</option>
-                    <option value="GOOD">Tốt</option>
-                    <option value="AVERAGE">Trung bình</option>
-                    <option value="POOR">Kém</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Ghi chú
-                  </label>
-                  <textarea
-                    value={evaluationData.comment}
-                    onChange={(e) => setEvaluationData({ ...evaluationData, comment: e.target.value })}
-                    placeholder="Nhập ghi chú (tùy chọn)..."
-                    rows={3}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     Điểm được duyệt (giờ) <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -581,8 +481,6 @@ const AdHocTasksPage = () => {
                   onClick={() => {
                     setEvaluatingTask(null)
                     setEvaluationData({
-                      rating: 'GOOD',
-                      comment: '',
                       approved: false,
                       approvedScore: null
                     })

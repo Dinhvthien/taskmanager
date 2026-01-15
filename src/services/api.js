@@ -29,7 +29,11 @@ api.interceptors.response.use(
     // Không log 404 errors cho download attachment requests (file not found là expected)
     const isDownloadAttachment = error.config?.url?.includes('/attachments/') && error.config?.url?.includes('/download')
     
-    if (error.response?.status === 401) {
+    if (error.response?.status === 503) {
+      // Xử lý khi hệ thống đang bảo trì
+      window.location.href = '/maintenance.html'
+      return Promise.reject(error)
+    } else if (error.response?.status === 401) {
       // Xử lý khi token hết hạn hoặc không hợp lệ
       localStorage.removeItem('token')
       localStorage.removeItem('user')
