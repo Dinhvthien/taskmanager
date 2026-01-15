@@ -54,6 +54,7 @@ const DailyReportPage = () => {
   const [autoSaving, setAutoSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState(null)
   const [autoSaveTimeout, setAutoSaveTimeout] = useState(null)
+  const [isCreatingReport, setIsCreatingReport] = useState(false) // Flag để tránh tạo duplicate
   // Lưu trữ snapshot dữ liệu ban đầu để so sánh
   const [initialDataSnapshot, setInitialDataSnapshot] = useState(null)
   // Theo dõi xem người dùng đã tương tác với form chưa (thêm/xóa/sửa)
@@ -535,6 +536,11 @@ const DailyReportPage = () => {
 
   // Lưu lịch làm việc (thủ công - khi người dùng nhấn nút Lưu)
   const handleSaveSchedule = async () => {
+    // Ngăn chặn gọi nhiều lần cùng lúc
+    if (isCreatingReport || autoSaving) {
+      return
+    }
+
     // Clear lỗi cũ
     setError('')
     setValidationErrors({})
@@ -545,6 +551,7 @@ const DailyReportPage = () => {
     }
 
     try {
+      setIsCreatingReport(true)
       setAutoSaving(true)
       setError('')
       
@@ -598,6 +605,7 @@ const DailyReportPage = () => {
       setError(err.response?.data?.message || err.message || 'Lỗi khi lưu lịch làm việc')
     } finally {
       setAutoSaving(false)
+      setIsCreatingReport(false)
     }
   }
 
@@ -1683,7 +1691,7 @@ const DailyReportPage = () => {
                 <button
                   type="button"
                   onClick={handleSaveSchedule}
-                  disabled={autoSaving || (selectedTasks.length === 0 && adHocTasks.length === 0)}
+                  disabled={isCreatingReport || autoSaving || (selectedTasks.length === 0 && adHocTasks.length === 0)}
                   className="px-8 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3 shadow-lg hover:shadow-xl transform hover:scale-105 font-semibold"
                 >
                   {autoSaving ? (

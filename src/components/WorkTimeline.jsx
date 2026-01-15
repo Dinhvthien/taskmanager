@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ClockIcon, PlusIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
+import { useEffect, useMemo, useState } from 'react'
+import { ClockIcon, PlusIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
 
 const WorkTimeline = ({ 
   selectedTasks = [], 
@@ -8,26 +8,47 @@ const WorkTimeline = ({
   mode = 'register',
   currentTime = null // Thời gian hiện tại (HH:mm) để highlight
 }) => {
-  // State cho zoom
-  const [zoomLevel, setZoomLevel] = useState(1.0) // 1.0 = bình thường, có thể từ 0.5 đến 3.0
-  const [zoomStartHour, setZoomStartHour] = useState(0) // Giờ bắt đầu zoom (0-23)
-  const [zoomEndHour, setZoomEndHour] = useState(23) // Giờ kết thúc zoom (0-23)
-  const [isZoomed, setIsZoomed] = useState(false) // Đang zoom vào một khoảng thời gian cụ thể
+  // Zoom theo khoảng giờ (GIỮ DUY NHẤT 1 CƠ CHẾ ZOOM để tránh lệch cảm nhận)
+  const [zoomStartHour, setZoomStartHour] = useState(0) // Giờ bắt đầu (0-23)
+  const [zoomEndHour, setZoomEndHour] = useState(23) // Giờ kết thúc (0-23) -> end boundary là (zoomEndHour + 1)
+  const [isZoomed, setIsZoomed] = useState(false)
+
+  // Reset về full day mỗi lần mount để tránh state cũ ảnh hưởng hiển thị
+  useEffect(() => {
+    setIsZoomed(false)
+    setZoomStartHour(0)
+    setZoomEndHour(23)
+  }, [])
   
   // Tạo mảng các giờ trong ngày (0-23)
-  const hours = Array.from({ length: 24 }, (_, i) => i)
+  const hours = useMemo(() => Array.from({ length: 24 }, (_, i) => i), [])
+
+  // Chuẩn hoá thời gian đầu vào: hỗ trợ "HH:mm" và "HH:mm:ss" -> trả về "HH:mm"
+  const normalizeTimeToHHmm = (timeStr) => {
+    if (!timeStr) return null
+    const parts = String(timeStr).trim().split(':')
+    if (parts.length < 2) return null
+    const parsedHours = Number(parts[0])
+    const parsedMinutes = Number(parts[1])
+    if (Number.isNaN(parsedHours) || Number.isNaN(parsedMinutes)) return null
+    if (parsedHours < 0 || parsedHours > 23) return null
+    if (parsedMinutes < 0 || parsedMinutes > 59) return null
+    const hh = String(parsedHours).padStart(2, '0')
+    const mm = String(parsedMinutes).padStart(2, '0')
+    return `${hh}:${mm}`
+  }
   
   // Hàm chuyển đổi thời gian HH:mm sang phút trong ngày
   const timeToMinutes = (timeStr) => {
-    if (!timeStr) return null
-    const [hours, minutes] = timeStr.split(':').map(Number)
-    return hours * 60 + minutes
+    const normalized = normalizeTimeToHHmm(timeStr)
+    if (!normalized) return null
+    const [hh, mm] = normalized.split(':')
+    return Number(hh) * 60 + Number(mm)
   }
   
-  // Hàm chuyển đổi phút sang phần trăm của ngày (có tính zoom)
+  // Hàm chuyển đổi phút (phút trong ngày) sang phần trăm của trục timeline (có tính zoom theo khoảng)
   const minutesToPercent = (minutes) => {
     if (isZoomed) {
-      // Tính phần trăm trong khoảng zoom
       const zoomStartMinutes = zoomStartHour * 60
       const zoomEndMinutes = (zoomEndHour + 1) * 60
       const zoomDuration = zoomEndMinutes - zoomStartMinutes
@@ -40,25 +61,49 @@ const WorkTimeline = ({
     // Không zoom: tính theo toàn bộ ngày
     return (minutes / (24 * 60)) * 100
   }
-  
-  // Hàm tính scale dựa trên zoom level
-  const getTimelineScale = () => {
-    return zoomLevel
-  }
-  
-  // Hàm tính độ dài của công việc (phần trăm)
-  const getTaskDuration = (startTime, endTime) => {
-    const start = timeToMinutes(startTime)
-    const end = timeToMinutes(endTime)
-    if (!start || !end || end <= start) return 0
-    return minutesToPercent(end - start)
-  }
-  
-  // Hàm tính vị trí bắt đầu (phần trăm)
-  const getTaskPosition = (startTime) => {
-    const start = timeToMinutes(startTime)
-    if (!start) return 0
-    return minutesToPercent(start)
+
+  // Tính layout thanh task theo cùng hệ quy chiếu với minutesToPercent
+  // - Chuẩn hoá time đầu vào
+  // - Khi zoom: CLIP vào vùng zoom, duration% dựa trên zoomDuration (không dùng minutesToPercent(end-start))
+  const getTaskBarLayout = (startTimeRaw, endTimeRaw) => {
+    const startMinutes = timeToMinutes(startTimeRaw)
+    const endMinutes = timeToMinutes(endTimeRaw)
+    if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) return null
+
+    if (isZoomed) {
+      const zoomStartMinutes = zoomStartHour * 60
+      const zoomEndMinutes = (zoomEndHour + 1) * 60
+      const zoomDuration = zoomEndMinutes - zoomStartMinutes
+      if (zoomDuration <= 0) return null
+
+      // Clip để hiển thị đúng trong khoảng zoom
+      const visibleStart = Math.max(startMinutes, zoomStartMinutes)
+      const visibleEnd = Math.min(endMinutes, zoomEndMinutes)
+      if (visibleEnd <= visibleStart) return null
+
+      const leftPercent = minutesToPercent(visibleStart)
+      const widthPercent = ((visibleEnd - visibleStart) / zoomDuration) * 100
+      const durationHours = (visibleEnd - visibleStart) / 60
+
+      return {
+        leftPercent,
+        widthPercent,
+        durationHours,
+        normalizedStart: normalizeTimeToHHmm(startTimeRaw),
+        normalizedEnd: normalizeTimeToHHmm(endTimeRaw),
+      }
+    }
+
+    const leftPercent = (startMinutes / (24 * 60)) * 100
+    const widthPercent = ((endMinutes - startMinutes) / (24 * 60)) * 100
+    const durationHours = (endMinutes - startMinutes) / 60
+    return {
+      leftPercent,
+      widthPercent,
+      durationHours,
+      normalizedStart: normalizeTimeToHHmm(startTimeRaw),
+      normalizedEnd: normalizeTimeToHHmm(endTimeRaw),
+    }
   }
   
   // Lấy thời gian hiện tại nếu không được truyền vào
@@ -73,13 +118,15 @@ const WorkTimeline = ({
     const tasks = []
     
     // Thêm công việc đã chọn
-    selectedTasks.forEach((task, index) => {
-      if (task.startTime && task.endTime) {
+    selectedTasks.forEach((task) => {
+      const startTime = normalizeTimeToHHmm(task.startTime)
+      const endTime = normalizeTimeToHHmm(task.endTime)
+      if (startTime && endTime) {
         tasks.push({
           id: `task-${task.taskId}`,
           title: task.task?.title || 'Công việc',
-          startTime: task.startTime,
-          endTime: task.endTime,
+          startTime,
+          endTime,
           type: 'task',
           color: 'bg-blue-500',
           borderColor: 'border-blue-600',
@@ -90,12 +137,14 @@ const WorkTimeline = ({
     
     // Thêm công việc phát sinh
     adHocTasks.forEach((task, index) => {
-      if (task.startTime && task.endTime) {
+      const startTime = normalizeTimeToHHmm(task.startTime)
+      const endTime = normalizeTimeToHHmm(task.endTime)
+      if (startTime && endTime) {
         // Tìm index thực tế của công việc phát sinh này trong danh sách đã sắp xếp
         const sortedAdHoc = [...adHocTasks].sort((a, b) => {
           const timeA = timeToMinutes(a.startTime || '23:59')
           const timeB = timeToMinutes(b.startTime || '23:59')
-          return (timeA || 0) - (timeB || 0)
+          return (timeA ?? 0) - (timeB ?? 0)
         })
         const actualIndex = sortedAdHoc.findIndex(t => t.id === task.id)
         const displayIndex = actualIndex >= 0 ? actualIndex + 1 : index + 1
@@ -103,8 +152,8 @@ const WorkTimeline = ({
         tasks.push({
           id: `adhoc-${task.id}`,
           title: task.content?.trim() || `Công việc phát sinh #${displayIndex}`,
-          startTime: task.startTime,
-          endTime: task.endTime,
+          startTime,
+          endTime,
           type: 'adhoc',
           color: 'bg-purple-500',
           borderColor: 'border-purple-600',
@@ -116,14 +165,55 @@ const WorkTimeline = ({
     return tasks.sort((a, b) => {
       const timeA = timeToMinutes(a.startTime)
       const timeB = timeToMinutes(b.startTime)
-      return (timeA || 0) - (timeB || 0)
+      return (timeA ?? 0) - (timeB ?? 0)
     })
   }
   
   const tasksWithTime = getAllTasksWithTime()
   const currentTimeStr = getCurrentTime()
   const currentMinutes = timeToMinutes(currentTimeStr)
-  const currentPercent = currentMinutes ? minutesToPercent(currentMinutes) : null
+  const currentPercent = currentMinutes !== null ? minutesToPercent(currentMinutes) : null
+
+  // Xếp task vào các "hàng" để tránh bị đè lên nhau khi trùng thời gian
+  // Greedy: task theo thứ tự startTime, đặt vào lane đầu tiên có endTime <= startTime
+  const computeTaskLanes = (tasks) => {
+    const tasksWithMinutes = tasks
+      .map((task) => ({
+        ...task,
+        startMinutes: timeToMinutes(task.startTime),
+        endMinutes: timeToMinutes(task.endTime),
+      }))
+      .filter((task) => task.startMinutes !== null && task.endMinutes !== null && task.endMinutes > task.startMinutes)
+      .sort((a, b) => (a.startMinutes ?? 0) - (b.startMinutes ?? 0))
+
+    /** @type {number[]} */
+    const laneEndMinutes = []
+
+    return tasksWithMinutes.map((task) => {
+      let assignedLaneIndex = -1
+      for (let laneIndex = 0; laneIndex < laneEndMinutes.length; laneIndex++) {
+        if (laneEndMinutes[laneIndex] <= task.startMinutes) {
+          assignedLaneIndex = laneIndex
+          laneEndMinutes[laneIndex] = task.endMinutes
+          break
+        }
+      }
+      if (assignedLaneIndex === -1) {
+        assignedLaneIndex = laneEndMinutes.length
+        laneEndMinutes.push(task.endMinutes)
+      }
+      return {
+        ...task,
+        laneIndex: assignedLaneIndex,
+      }
+    })
+  }
+
+  const tasksWithLanes = useMemo(() => computeTaskLanes(tasksWithTime), [tasksWithTime])
+  const laneCount = useMemo(() => {
+    if (tasksWithLanes.length === 0) return 0
+    return Math.max(...tasksWithLanes.map((t) => t.laneIndex ?? 0)) + 1
+  }, [tasksWithLanes])
   
   // Hàm xử lý click vào timeline để thêm công việc phát sinh
   const handleTimelineClick = (e) => {
@@ -159,19 +249,8 @@ const WorkTimeline = ({
     onAddAdHocAtTime(timeStr, endTimeStr)
   }
   
-  // Hàm zoom in
-  const handleZoomIn = () => {
-    setZoomLevel(prev => Math.min(prev + 0.25, 3.0))
-  }
-  
-  // Hàm zoom out
-  const handleZoomOut = () => {
-    setZoomLevel(prev => Math.max(prev - 0.25, 0.5))
-  }
-  
-  // Hàm reset zoom
+  // Reset về full day
   const handleResetZoom = () => {
-    setZoomLevel(1.0)
     setIsZoomed(false)
     setZoomStartHour(0)
     setZoomEndHour(23)
@@ -182,34 +261,15 @@ const WorkTimeline = ({
     setZoomStartHour(startHour)
     setZoomEndHour(endHour)
     setIsZoomed(true)
-    setZoomLevel(1.0)
   }
   
-  // Hàm xử lý wheel event để zoom
-  const handleWheel = (e) => {
-    // Zoom khi giữ Ctrl (Windows/Linux) hoặc Cmd (Mac), hoặc chỉ cần hover vào timeline
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault()
-      e.stopPropagation()
-      
-      // Tính delta dựa trên độ lớn của scroll
-      const scrollAmount = Math.abs(e.deltaY)
-      const baseDelta = scrollAmount > 50 ? 0.15 : 0.1 // Zoom nhanh hơn nếu scroll nhiều
-      const delta = e.deltaY > 0 ? -baseDelta : baseDelta // Scroll down = zoom out, scroll up = zoom in
-      
-      setZoomLevel(prev => {
-        const newLevel = Math.max(0.5, Math.min(3.0, prev + delta))
-        return Math.round(newLevel * 10) / 10 // Làm tròn đến 1 chữ số thập phân
-      })
-    }
-  }
-  
-  // Lấy danh sách giờ hiển thị (có tính zoom)
-  const getDisplayHours = () => {
+  // Lấy danh sách mốc giờ hiển thị, theo segment và có mốc biên
+  const getDisplayHourMarkers = () => {
     if (isZoomed) {
-      return Array.from({ length: zoomEndHour - zoomStartHour + 1 }, (_, i) => zoomStartHour + i)
+      const segmentCount = zoomEndHour - zoomStartHour + 1
+      return Array.from({ length: segmentCount + 1 }, (_, i) => zoomStartHour + i) // +1: mốc biên (endHour+1)
     }
-    return hours
+    return [...hours, 24] // full day có mốc 24h
   }
   
   return (
@@ -225,40 +285,17 @@ const WorkTimeline = ({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {/* Zoom controls */}
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+          {/* Range controls */}
+          {isZoomed && (
             <button
               type="button"
-              onClick={handleZoomOut}
-              disabled={zoomLevel <= 0.5}
-              className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Thu nhỏ (Ctrl/Cmd + lăn chuột xuống)"
+              onClick={handleResetZoom}
+              className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+              title="Hiển thị cả ngày"
             >
-              <MagnifyingGlassMinusIcon className="h-4 w-4" />
+              <ArrowsPointingOutIcon className="h-4 w-4" />
             </button>
-            <span className="text-xs text-gray-600 px-2 min-w-[3rem] text-center" title="Giữ Ctrl/Cmd + lăn chuột để zoom">
-              {(zoomLevel * 100).toFixed(0)}%
-            </span>
-            <button
-              type="button"
-              onClick={handleZoomIn}
-              disabled={zoomLevel >= 3.0}
-              className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Phóng to (Ctrl/Cmd + lăn chuột lên)"
-            >
-              <MagnifyingGlassPlusIcon className="h-4 w-4" />
-            </button>
-            {(isZoomed || zoomLevel !== 1.0) && (
-              <button
-                type="button"
-                onClick={handleResetZoom}
-                className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-white rounded transition-colors"
-                title="Reset zoom"
-              >
-                <ArrowsPointingOutIcon className="h-4 w-4" />
-              </button>
-            )}
-          </div>
+          )}
           
           {/* Quick zoom buttons */}
           <div className="flex items-center gap-1">
@@ -334,33 +371,32 @@ const WorkTimeline = ({
               onAddAdHocAtTime ? 'cursor-pointer hover:border-blue-400' : 'cursor-default'
             }`}
             style={{ 
-              height: `${32 * getTimelineScale()}px`,
-              minHeight: '128px'
+              // 24px cho header mốc giờ + mỗi lane 38px + padding dưới
+              height: `${Math.max(128, 24 + laneCount * 38 + 16)}px`,
+              minHeight: '150px'
             }}
             onClick={handleTimelineClick}
-            onWheel={handleWheel}
-            title={onAddAdHocAtTime ? 'Nhấn để thêm công việc phát sinh tại vị trí này. Giữ Ctrl/Cmd + lăn chuột để zoom' : 'Timeline đã khóa (báo cáo đã gửi). Giữ Ctrl/Cmd + lăn chuột để zoom'}
+            title={onAddAdHocAtTime ? 'Nhấn để thêm công việc phát sinh tại vị trí này' : 'Timeline đã khóa (báo cáo đã gửi)'}
           >
             <div 
               className="absolute inset-0"
               style={{
-                transform: `scaleX(${getTimelineScale()})`,
-                transformOrigin: 'left center',
-                width: isZoomed ? `${100 / getTimelineScale()}%` : '100%'
+                width: '150%',
               }}
             >
               {/* Hour markers */}
               <div className="absolute inset-0 flex">
-                {getDisplayHours().map((hour) => {
-                  const hourPercent = isZoomed 
-                    ? ((hour - zoomStartHour) / (zoomEndHour - zoomStartHour + 1)) * 100
+                {getDisplayHourMarkers().map((hour) => {
+                  const segmentCount = isZoomed ? (zoomEndHour - zoomStartHour + 1) : 24
+                  const hourPercent = isZoomed
+                    ? ((hour - zoomStartHour) / segmentCount) * 100
                     : (hour / 24) * 100
                   
                   return (
                     <div
                       key={hour}
                       className="absolute border-r border-gray-300 relative"
-                      style={{ left: `${hourPercent}%`, width: isZoomed ? `${100 / (zoomEndHour - zoomStartHour + 1)}%` : '4.166%' }}
+                      style={{ left: `${hourPercent}%` }}
                     >
                       <div className="absolute top-0 left-0 text-xs text-gray-500 px-1 whitespace-nowrap">
                         {hour}h
@@ -373,7 +409,7 @@ const WorkTimeline = ({
               {/* Current time indicator */}
               {currentPercent !== null && onAddAdHocAtTime && (() => {
                 const currentMinutes = timeToMinutes(currentTimeStr)
-                if (!currentMinutes) return null
+                if (currentMinutes === null) return null
                 
                 // Kiểm tra xem thời gian hiện tại có nằm trong khoảng zoom không
                 if (isZoomed) {
@@ -397,35 +433,24 @@ const WorkTimeline = ({
               })()}
               
               {/* Task bars */}
-              {tasksWithTime.map((task) => {
-                const taskStartMinutes = timeToMinutes(task.startTime)
-                const taskEndMinutes = timeToMinutes(task.endTime)
-                
-                // Kiểm tra xem task có nằm trong khoảng zoom không
-                if (isZoomed && taskStartMinutes !== null && taskEndMinutes !== null) {
-                  const zoomStartMinutes = zoomStartHour * 60
-                  const zoomEndMinutes = (zoomEndHour + 1) * 60
-                  if (taskEndMinutes < zoomStartMinutes || taskStartMinutes > zoomEndMinutes) {
-                    return null // Không hiển thị task nằm ngoài khoảng zoom
-                  }
-                }
-                
-                const position = getTaskPosition(task.startTime)
-                const duration = getTaskDuration(task.startTime, task.endTime)
+              {tasksWithLanes.map((task) => {
+                const layout = getTaskBarLayout(task.startTime, task.endTime)
+                if (!layout) return null
                 
                 // Tính toán xem có đủ không gian để hiển thị nhiều dòng không
-                const durationInHours = duration / (100 / 24) // Chuyển từ % sang giờ
+                const durationInHours = layout.durationHours
                 const canShowFullTitle = durationInHours >= 1.5 // Nếu >= 1.5 giờ thì hiển thị đầy đủ
                 const canShowTwoLines = durationInHours >= 2.5 // Nếu >= 2.5 giờ thì có thể hiển thị 2 dòng
+                const topOffsetPx = 24 + (task.laneIndex ?? 0) * 38
                 
                 return (
                   <div
                     key={task.id}
                     className={`absolute ${task.color} ${task.borderColor} border rounded px-2 py-1.5 text-white text-xs font-medium shadow-sm z-10 hover:shadow-lg hover:z-20 transition-all group`}
                     style={{
-                      left: `${position}%`,
-                      width: `${duration}%`,
-                      top: '35%',
+                      left: `${layout.leftPercent}%`,
+                      width: `${layout.widthPercent}%`,
+                      top: `${topOffsetPx}px`,
                       minWidth: '80px',
                       maxWidth: '100%'
                     }}
@@ -494,7 +519,7 @@ const WorkTimeline = ({
               {tasksWithTime.map((task) => {
                 const start = timeToMinutes(task.startTime)
                 const end = timeToMinutes(task.endTime)
-                const duration = end && start ? ((end - start) / 60).toFixed(1) : 0
+                const duration = (start !== null && end !== null) ? ((end - start) / 60).toFixed(1) : 0
                 
                 return (
                   <div
