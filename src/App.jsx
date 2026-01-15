@@ -41,6 +41,11 @@ import api from './services/api'
 function App() {
   // Check system health when app loads
   useEffect(() => {
+    // Bỏ qua check nếu đang ở trang maintenance
+    if (window.location.pathname === '/maintenance.html') {
+      return
+    }
+
     const checkSystemHealth = async () => {
       try {
         // Try to call health endpoint
@@ -68,7 +73,12 @@ function App() {
       }
     }
 
-    checkSystemHealth()
+    // Đợi một chút trước khi check để tránh race condition
+    const timeoutId = setTimeout(() => {
+      checkSystemHealth()
+    }, 500)
+
+    return () => clearTimeout(timeoutId)
   }, [])
 
   return (

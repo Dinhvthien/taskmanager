@@ -44,7 +44,12 @@ const LoginPage = () => {
       }
     }
 
-    checkSystemHealth()
+    // Đợi một chút trước khi check để tránh race condition với maintenance page
+    const timeoutId = setTimeout(() => {
+      checkSystemHealth()
+    }, 1000)
+
+    return () => clearTimeout(timeoutId)
   }, [])
 
   const handleChange = (e) => {
