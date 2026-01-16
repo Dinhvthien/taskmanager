@@ -209,10 +209,13 @@ const NotificationPanel = () => {
     }
   }
 
-  const formatDate = (dateString) => {
+  const formatDateRelative = (dateString) => {
+    if (!dateString) return ''
     const date = new Date(dateString)
+    if (isNaN(date.getTime())) return ''
+    
     const now = new Date()
-    const diff = now - date
+    const diff = now.getTime() - date.getTime()
     const minutes = Math.floor(diff / 60000)
     const hours = Math.floor(diff / 3600000)
     const days = Math.floor(diff / 86400000)
@@ -221,7 +224,9 @@ const NotificationPanel = () => {
     if (minutes < 60) return `${minutes} phút trước`
     if (hours < 24) return `${hours} giờ trước`
     if (days < 7) return `${days} ngày trước`
-    return formatDate(date)
+    
+    // Sử dụng formatDate từ utils thay vì gọi lại chính nó
+    return formatDate(dateString)
   }
 
   const getNotificationIcon = (type) => {
@@ -419,7 +424,7 @@ const NotificationPanel = () => {
                               </p>
                             )}
                             <p className="text-xs text-gray-400 mt-1">
-                              {formatDate(notification.createdAt)}
+                              {formatDateRelative(notification.createdAt)}
                             </p>
                           </div>
                         </div>
