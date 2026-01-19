@@ -588,7 +588,11 @@ const DepartmentTasksPage = () => {
                         {(task.status === 'WAITING' || (task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0)) && (
                           <div className="mt-3">
                             {task.waitingReason ? (
-                              <div className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-orange-700'} bg-orange-50 border border-orange-200 rounded-md p-2`}>
+                              <div className={`text-xs rounded-md p-2 ${
+                                isOverdue 
+                                  ? 'text-orange-100 bg-orange-900 border border-orange-700' 
+                                  : 'text-orange-700 bg-orange-50 border border-orange-200'
+                              }`}>
                                 <span className="font-semibold">Lý do chờ:</span> <span className="break-words">{task.waitingReason}</span>
                               </div>
                             ) : task.departmentWaitingReasons && Object.keys(task.departmentWaitingReasons).length > 0 ? (
@@ -600,7 +604,11 @@ const DepartmentTasksPage = () => {
                                     ? task.departmentNames[deptIndex] 
                                     : `Phòng ban ${deptId}`
                                   return (
-                                    <div key={deptId} className={`text-xs ${isOverdue ? 'text-gray-300' : 'text-orange-700'} bg-orange-50 border border-orange-200 rounded-md p-2`}>
+                                    <div key={deptId} className={`text-xs rounded-md p-2 ${
+                                      isOverdue 
+                                        ? 'text-orange-100 bg-orange-900 border border-orange-700' 
+                                        : 'text-orange-700 bg-orange-50 border border-orange-200'
+                                    }`}>
                                       <span className="font-semibold">{deptName}:</span> <span className="break-words">{reason}</span>
                                     </div>
                                   )

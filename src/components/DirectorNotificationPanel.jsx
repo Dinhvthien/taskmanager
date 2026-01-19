@@ -284,7 +284,7 @@ const DirectorNotificationPanel = () => {
     }
   }
 
-  const formatDate = (dateString) => {
+  const formatRelativeTime = (dateString) => {
     const date = new Date(dateString)
     const now = new Date()
     const diff = now - date
@@ -296,7 +296,7 @@ const DirectorNotificationPanel = () => {
     if (minutes < 60) return `${minutes} phút trước`
     if (hours < 24) return `${hours} giờ trước`
     if (days < 7) return `${days} ngày trước`
-    return formatDate(date)
+    return formatDate(dateString)
   }
 
   const getNotificationIcon = (type) => {
@@ -613,7 +613,7 @@ const DirectorNotificationPanel = () => {
                               </p>
                             )}
                             <p className="text-xs text-gray-400 mt-1">
-                              {formatDate(notification.createdAt)}
+                              {formatRelativeTime(notification.createdAt)}
                             </p>
                           </div>
                         </div>
