@@ -544,6 +544,74 @@ const DashboardPage = ({ role = 'user' }) => {
               </div>
             )}
 
+            {/* Tasks sắp đến hạn */}
+            {urgentTasks.length > 0 && (
+              <div className="bg-white rounded-lg sm:rounded-xl shadow-lg border border-red-200 overflow-hidden">
+                <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 bg-gradient-to-r from-red-600 to-red-700">
+                  <h2 className="text-base sm:text-lg md:text-xl font-bold text-white">Công việc sắp đến hạn</h2>
+                </div>
+                <div className="p-3 sm:p-4">
+                  <div className="space-y-2 sm:space-y-3">
+                    {urgentTasks.map((task) => {
+                      const deadline = new Date(task.endDate)
+                      const now = new Date()
+                      const hoursLeft = Math.ceil((deadline - now) / (1000 * 60 * 60))
+                      return (
+                        <div
+                          key={task.taskId}
+                          onClick={() => navigate(`/director/tasks/${task.taskId}`)}
+                          className="p-2 sm:p-3 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors cursor-pointer"
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-xs sm:text-sm font-semibold text-gray-900 truncate flex-1">{task.title}</p>
+                            <span className="text-xs font-bold text-red-600 ml-2 flex-shrink-0">
+                              {hoursLeft <= 6 ? 'Cấp bách' : `${hoursLeft}h`}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            Hạn: {formatDateTime(deadline)}
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tasks đang chờ */}
+            {waitingTasks.length > 0 && (
+              <div className="bg-white rounded-lg sm:rounded-xl shadow-lg border border-orange-200 overflow-hidden">
+                <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 bg-gradient-to-r from-orange-600 to-orange-700">
+                  <h2 className="text-base sm:text-lg md:text-xl font-bold text-white">Công việc đang chờ</h2>
+                </div>
+                <div className="p-3 sm:p-4">
+                  <div className="space-y-2 sm:space-y-3">
+                    {waitingTasks.map((task) => (
+                      <div
+                        key={task.taskId}
+                        onClick={() => navigate(`/director/tasks/${task.taskId}`)}
+                        className="p-2 sm:p-3 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors cursor-pointer"
+                      >
+                        <p className="text-xs sm:text-sm font-semibold text-gray-900 mb-1 sm:mb-2 truncate">{task.title}</p>
+                        {task.waitingReasons && task.waitingReasons.length > 0 ? (
+                          <div className="space-y-1">
+                            {task.waitingReasons.map((item, idx) => (
+                              <div key={idx} className="text-xs text-orange-700">
+                                <span className="font-semibold">{item.deptName}:</span> <span className="break-words">{item.reason}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-orange-500 italic">Chưa có lý do chờ</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Xếp hạng trong tháng */}
             <div className="bg-white rounded-lg sm:rounded-xl shadow-lg border border-purple-200 overflow-hidden relative z-0">
               <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 bg-gradient-to-r from-purple-600 to-purple-700 flex items-center justify-between">
@@ -787,74 +855,6 @@ const DashboardPage = ({ role = 'user' }) => {
                 </div>
               </div>
             </div>
-
-            {/* Tasks sắp đến hạn */}
-            {urgentTasks.length > 0 && (
-              <div className="bg-white rounded-lg sm:rounded-xl shadow-lg border border-red-200 overflow-hidden">
-                <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 bg-gradient-to-r from-red-600 to-red-700">
-                  <h2 className="text-base sm:text-lg md:text-xl font-bold text-white">Công việc sắp đến hạn</h2>
-                </div>
-                <div className="p-3 sm:p-4">
-                  <div className="space-y-2 sm:space-y-3">
-                    {urgentTasks.map((task) => {
-                      const deadline = new Date(task.endDate)
-                      const now = new Date()
-                      const hoursLeft = Math.ceil((deadline - now) / (1000 * 60 * 60))
-                      return (
-                        <div
-                          key={task.taskId}
-                          onClick={() => navigate(`/director/tasks/${task.taskId}`)}
-                          className="p-2 sm:p-3 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors cursor-pointer"
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <p className="text-xs sm:text-sm font-semibold text-gray-900 truncate flex-1">{task.title}</p>
-                            <span className="text-xs font-bold text-red-600 ml-2 flex-shrink-0">
-                              {hoursLeft <= 6 ? 'Cấp bách' : `${hoursLeft}h`}
-                            </span>
-                          </div>
-                          <p className="text-xs text-gray-500">
-                            Hạn: {formatDateTime(deadline)}
-                          </p>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Tasks đang chờ */}
-            {waitingTasks.length > 0 && (
-              <div className="bg-white rounded-lg sm:rounded-xl shadow-lg border border-orange-200 overflow-hidden">
-                <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 bg-gradient-to-r from-orange-600 to-orange-700">
-                  <h2 className="text-base sm:text-lg md:text-xl font-bold text-white">Công việc đang chờ</h2>
-                </div>
-                <div className="p-3 sm:p-4">
-                  <div className="space-y-2 sm:space-y-3">
-                    {waitingTasks.map((task) => (
-                      <div
-                        key={task.taskId}
-                        onClick={() => navigate(`/director/tasks/${task.taskId}`)}
-                        className="p-2 sm:p-3 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors cursor-pointer"
-                      >
-                        <p className="text-xs sm:text-sm font-semibold text-gray-900 mb-1 sm:mb-2 truncate">{task.title}</p>
-                        {task.waitingReasons && task.waitingReasons.length > 0 ? (
-                          <div className="space-y-1">
-                            {task.waitingReasons.map((item, idx) => (
-                              <div key={idx} className="text-xs text-orange-700">
-                                <span className="font-semibold">{item.deptName}:</span> <span className="break-words">{item.reason}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-orange-500 italic">Chưa có lý do chờ</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
 
           </div>
         </>

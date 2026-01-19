@@ -41,10 +41,7 @@ export const formatDateTime = (date) => {
   const d = new Date(date)
   if (isNaN(d.getTime())) return ''
   
-  // Tránh vòng lặp đệ quy: chuyển Date object thành ISO string trước khi format
-  // Thay vì truyền Date object trực tiếp vào formatDate/formatTime
-  const isoString = d.toISOString()
-  return `${formatDate(isoString)} ${formatTime(isoString)}`
+  return `${formatDate(d)} ${formatTime(d)}`
 }
 
 /**
