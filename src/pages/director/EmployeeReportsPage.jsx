@@ -3,11 +3,13 @@ import { useSearchParams } from 'react-router-dom'
 import { userService } from '../../services/userService'
 import { directorService } from '../../services/directorService'
 import dailyReportService, { directorEvaluationService } from '../../services/dailyReportService'
+import { reportService } from '../../services/reportService'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorMessage from '../../components/ErrorMessage'
 import WorkTimeline from '../../components/WorkTimeline'
 import { formatDate, formatTime } from '../../utils/dateFormat'
 import DateInput from '../../components/DateInput'
+import { DocumentArrowDownIcon } from '@heroicons/react/24/outline'
 
 const EmployeeReportsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -27,6 +29,8 @@ const EmployeeReportsPage = () => {
   const [taskEvaluation, setTaskEvaluation] = useState({ rating: '', comment: '' })
   const [adHocTaskEvaluation, setAdHocTaskEvaluation] = useState({ rating: '', comment: '' })
   const [savingEvaluation, setSavingEvaluation] = useState(false)
+  const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7)) // Format: YYYY-MM
+  const [exportingReport, setExportingReport] = useState(false)
 
   // Hàm kiểm tra báo cáo đã gửi chưa (dựa vào comment)
   const isReportSent = (report) => {
@@ -264,6 +268,45 @@ const EmployeeReportsPage = () => {
     }
   }
 
+  const handleExportMonthlyReport = async () => {
+    if (!selectedUserId) {
+      setError('Vui lòng chọn nhân viên')
+      return
+    }
+
+    try {
+      setExportingReport(true)
+      setError('')
+
+      // Tính toán ngày đầu và cuối tháng
+      const [year, month] = exportMonth.split('-').map(Number)
+      const startDate = new Date(year, month - 1, 1)
+      const endDate = new Date(year, month, 0, 23, 59, 59) // Ngày cuối cùng của tháng
+
+      const response = await reportService.exportEmployeeMonthlyReport(
+        selectedUserId,
+        startDate.toISOString(),
+        endDate.toISOString()
+      )
+
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      const selectedUser = users.find(u => u.userId === selectedUserId)
+      const fileName = `bao_cao_nhan_vien_${selectedUser?.fullName || selectedUserId}_${exportMonth}.xlsx`
+      link.setAttribute('download', fileName.replace(/\s+/g, '_'))
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi xuất báo cáo')
+    } finally {
+      setExportingReport(false)
+    }
+  }
+
   if (loading && users.length === 0) {
     return <LoadingSpinner />
   }
@@ -333,6 +376,35 @@ const EmployeeReportsPage = () => {
             />
           </div>
         </div>
+        
+        {/* Xuất báo cáo theo tháng */}
+        {selectedUserId && (
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Xuất báo cáo theo tháng</h3>
+            <div className="flex flex-col sm:flex-row gap-4 items-end">
+              <div className="w-full sm:w-auto sm:min-w-[200px]">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Chọn tháng
+                </label>
+                <input
+                  type="month"
+                  value={exportMonth}
+                  onChange={(e) => setExportMonth(e.target.value)}
+                  max={new Date().toISOString().slice(0, 7)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <button
+                onClick={handleExportMonthlyReport}
+                disabled={exportingReport || !selectedUserId}
+                className="w-full sm:w-auto px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <DocumentArrowDownIcon className="w-5 h-5" />
+                {exportingReport ? 'Đang xuất...' : 'Xuất báo cáo tháng'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Hiển thị báo cáo */}

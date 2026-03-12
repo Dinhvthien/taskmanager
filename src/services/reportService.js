@@ -47,6 +47,30 @@ export const reportService = {
       params,
       responseType: 'blob'
     })
+  },
+
+  // Export employee monthly report
+  exportEmployeeMonthlyReport: (userId, startDate, endDate) => {
+    const params = {}
+    if (startDate) params.startDate = startDate
+    if (endDate) params.endDate = endDate
+    
+    return api.get(`/reports/employees/${userId}/monthly-export`, {
+      params,
+      responseType: 'blob'
+    })
+  },
+
+  // Export all employees monthly report
+  exportAllEmployeesMonthlyReport: (startDate, endDate) => {
+    const params = {}
+    if (startDate) params.startDate = startDate
+    if (endDate) params.endDate = endDate
+    
+    return api.get('/reports/employees/all/monthly-export', {
+      params,
+      responseType: 'blob'
+    })
   }
 }
 

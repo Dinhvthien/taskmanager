@@ -12,7 +12,7 @@ export const taskService = {
   },
 
   // Lấy tasks theo director ID (có phân trang)
-  getTasksByDirectorId: (directorId, page = 0, size = 15, includeDeleted = false, status = null, searchTitle = null, deadlineStatus = null, departmentId = null) => {
+  getTasksByDirectorId: (directorId, page = 0, size = 15, includeDeleted = false, status = null, searchTitle = null, deadlineStatus = null, departmentId = null, excludeRecurring = false) => {
     const params = { page, size }
     if (includeDeleted) {
       params.deleted = true
@@ -29,6 +29,9 @@ export const taskService = {
     if (departmentId && departmentId !== 'all') {
       params.departmentId = departmentId
     }
+    if (excludeRecurring) {
+      params.excludeRecurring = true
+    }
     return api.get(`/tasks/director/${directorId}`, {
       params
     })
@@ -39,9 +42,9 @@ export const taskService = {
     return api.get('/tasks/user/me')
   },
 
-  // Lấy tasks theo department ID
-  getTasksByDepartmentId: (departmentId, searchTitle = null, status = null) => {
-    const params = {}
+  // Lấy tasks theo department ID (có phân trang)
+  getTasksByDepartmentId: (departmentId, page = 0, size = 15, searchTitle = null, status = null) => {
+    const params = { page, size }
     if (searchTitle) {
       params.searchTitle = searchTitle
     }

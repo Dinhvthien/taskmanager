@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import PropTypes from 'prop-types'
 import { useNavigate } from 'react-router-dom'
 import MyTasksPage from './user/MyTasksPage'
 import { taskService } from '../services/taskService'
@@ -7,23 +8,15 @@ import { departmentService } from '../services/departmentService'
 import { userService } from '../services/userService'
 import dailyReportService from '../services/dailyReportService'
 import LoadingSpinner from '../components/LoadingSpinner'
-import { TASK_STATUS_LABELS, TASK_STATUS_COLORS } from '../utils/constants'
 import { formatDateTime } from '../utils/dateFormat'
 import { TrophyIcon } from '@heroicons/react/24/outline'
 
 const DashboardPage = ({ role = 'user' }) => {
-  // Nếu là user, hiển thị trang "Task của tôi"
-  if (role === 'user') {
-    return <MyTasksPage />
-  }
-
   const [director, setDirector] = useState(null)
-  const [tasks, setTasks] = useState([])
-  const [recentTasks, setRecentTasks] = useState([])
   const [urgentTasks, setUrgentTasks] = useState([])
   const [waitingTasks, setWaitingTasks] = useState([])
   const [overdueTasks, setOverdueTasks] = useState([])
-  const [incompleteTasks, setIncompleteTasks] = useState([])
+  const [adHocTasks, setAdHocTasks] = useState([])
   const [loading, setLoading] = useState(true)
   const [topEmployees, setTopEmployees] = useState([])
   const [topDepartments, setTopDepartments] = useState([])
@@ -49,8 +42,14 @@ const DashboardPage = ({ role = 'user' }) => {
       loadTasks()
       loadUsersAndDepartments()
       loadTopRankings()
+      loadAdHocTasks()
     }
   }, [director, role])
+
+  // Nếu là user, hiển thị trang "Task của tôi"
+  if (role === 'user') {
+    return <MyTasksPage />
+  }
 
   const loadDirector = async () => {
     try {
@@ -87,8 +86,6 @@ const DashboardPage = ({ role = 'user' }) => {
       completedTasksList.forEach(task => tasksMap.set(task.taskId, task))
       const tasksList = Array.from(tasksMap.values())
       
-      setTasks(tasksList)
-
       // Calculate statistics từ tất cả tasks
       const total = tasksList.length
       const inProgress = tasksList.filter(t => t.status === 'IN_PROGRESS').length
@@ -97,13 +94,7 @@ const DashboardPage = ({ role = 'user' }) => {
 
       setStats(prev => ({ ...prev, total, inProgress, completed, pending }))
 
-      // Get 10 most recent tasks (sorted by createdAt or updatedAt, most recent first)
-      const sortedTasks = [...tasksList].sort((a, b) => {
-        const dateA = new Date(a.updatedAt || a.createdAt || 0)
-        const dateB = new Date(b.updatedAt || b.createdAt || 0)
-        return dateB - dateA
-      })
-      setRecentTasks(sortedTasks.slice(0, 10))
+      setStats(prev => ({ ...prev, total, inProgress, completed, pending }))
 
       // Get urgent tasks (deadline within 48 hours and not completed)
       const now = new Date()
@@ -118,7 +109,7 @@ const DashboardPage = ({ role = 'user' }) => {
         const dateB = new Date(b.endDate)
         return dateA - dateB
       })
-      setUrgentTasks(urgent.slice(0, 5))
+      setUrgentTasks(urgent.slice(0, 8))
 
       // Get overdue tasks (deadline has passed and not completed)
       const overdue = tasksList.filter(task => {
@@ -131,28 +122,7 @@ const DashboardPage = ({ role = 'user' }) => {
         const dateB = new Date(b.endDate)
         return dateA - dateB // Most overdue first
       })
-      setOverdueTasks(overdue.slice(0, 10))
-
-      // Get incomplete tasks (not completed, not overdue, not urgent, not waiting)
-      const incomplete = tasksList.filter(task => {
-        if (task.status === 'COMPLETED') return false
-        if (task.status === 'WAITING') return false
-        if (!task.endDate) return true // Include tasks without deadline
-        
-        const deadline = new Date(task.endDate)
-        const hoursUntilDeadline = (deadline - now) / (1000 * 60 * 60)
-        // Exclude overdue (handled separately) and urgent (handled separately)
-        if (deadline < now) return false
-        if (hoursUntilDeadline > 0 && hoursUntilDeadline <= 48) return false
-        
-        return true
-      }).sort((a, b) => {
-        // Sort by endDate if available, otherwise by updatedAt
-        const dateA = a.endDate ? new Date(a.endDate) : new Date(a.updatedAt || a.createdAt || 0)
-        const dateB = b.endDate ? new Date(b.endDate) : new Date(b.updatedAt || b.createdAt || 0)
-        return dateA - dateB // Earliest deadline first
-      })
-      setIncompleteTasks(incomplete.slice(0, 10))
+      setOverdueTasks(overdue.slice(0, 8))
 
       // Get waiting tasks with reasons (từ departmentWaitingReasons)
       // Lọc các task có thể đang chờ trước
@@ -163,7 +133,7 @@ const DashboardPage = ({ role = 'user' }) => {
           return Object.values(task.departmentWaitingReasons).some(reason => reason && reason.trim())
         }
         return false
-      }).slice(0, 5) // Chỉ load chi tiết 5 task đầu tiên để tối ưu
+      }).slice(0, 8) // Chỉ load chi tiết 8 task đầu tiên để tối ưu
 
       // Load chi tiết đầy đủ cho các task đang chờ để có departmentWaitingReasons
       const waitingTasksWithDetails = await Promise.all(
@@ -184,7 +154,7 @@ const DashboardPage = ({ role = 'user' }) => {
           // Lấy tất cả lý do chờ từ các phòng ban
           const deptReasons = task.departmentWaitingReasons || {}
           const reasonsList = Object.entries(deptReasons)
-            .filter(([deptId, reason]) => reason && reason.trim())
+            .filter(([, reason]) => reason && reason.trim())
             .map(([deptId, reason]) => {
               const deptName = task.departmentNames?.[task.departmentIds?.indexOf(parseInt(deptId))] || `Phòng ban ${deptId}`
               return { deptId, deptName, reason }
@@ -289,6 +259,18 @@ const DashboardPage = ({ role = 'user' }) => {
       console.error('Error loading top rankings:', err)
     } finally {
       setLoadingRanking(false)
+    }
+  }
+
+  const loadAdHocTasks = async () => {
+    if (!director) return
+
+    try {
+      const response = await dailyReportService.getPendingAdHocTasks()
+      const adHocList = response.data.result || []
+      setAdHocTasks(adHocList.slice(0, 8))
+    } catch (err) {
+      console.error('Error loading adhoc tasks:', err)
     }
   }
 
@@ -490,8 +472,8 @@ const DashboardPage = ({ role = 'user' }) => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6 md:mb-8">
             {/* Bảng công việc trễ hạn */}
             {overdueTasks.length > 0 && (
-              <div className="bg-white rounded-lg sm:rounded-xl shadow-lg border border-amber-200 overflow-hidden">
-                <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 bg-gradient-to-r from-amber-500 to-amber-600 flex items-center justify-between">
+              <div className="bg-white rounded-lg sm:rounded-xl shadow-lg border border-gray-800 overflow-hidden">
+                <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 bg-gradient-to-r from-gray-700 to-gray-800 flex items-center justify-between">
                   <h2 className="text-base sm:text-lg md:text-xl font-bold text-white">Công việc trễ hạn</h2>
                   <button
                     onClick={() => navigate('/director/tasks')}
@@ -518,7 +500,7 @@ const DashboardPage = ({ role = 'user' }) => {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {overdueTasks.map((task) => {
                         return (
-                          <tr key={task.taskId} className="hover:bg-amber-50 transition-colors cursor-pointer" onClick={() => navigate(`/director/tasks/${task.taskId}`)}>
+                          <tr key={task.taskId} className="hover:bg-gray-100 transition-colors cursor-pointer" onClick={() => navigate(`/director/tasks/${task.taskId}`)}>
                             <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4">
                               <div className="text-xs sm:text-sm font-medium text-gray-900 line-clamp-1">{task.title}</div>
                             </td>
@@ -526,7 +508,7 @@ const DashboardPage = ({ role = 'user' }) => {
                               <div className="flex items-center space-x-2">
                                 <div className="flex-1 bg-gray-200 rounded-full h-2 min-w-[60px] sm:min-w-[100px]">
                                   <div 
-                                    className="bg-amber-500 h-2 rounded-full transition-all"
+                                    className="bg-gray-800 h-2 rounded-full transition-all"
                                     style={{ width: `${task.progress || 0}%` }}
                                   />
                                 </div>
@@ -612,30 +594,67 @@ const DashboardPage = ({ role = 'user' }) => {
               </div>
             )}
 
-            {/* Xếp hạng trong tháng */}
-            <div className="bg-white rounded-lg sm:rounded-xl shadow-lg border border-purple-200 overflow-hidden relative z-0">
-              <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 bg-gradient-to-r from-purple-600 to-purple-700 flex items-center justify-between">
-                <h2 className="text-base sm:text-lg md:text-xl font-bold text-white">Xếp hạng trong tháng</h2>
-                <div className="flex items-center space-x-2">
+            {/* Công việc phát sinh chờ duyệt */}
+            {adHocTasks.length > 0 && (
+              <div className="bg-white rounded-lg sm:rounded-xl shadow-lg border border-teal-200 overflow-hidden">
+                <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 bg-gradient-to-r from-teal-500 to-teal-600 flex items-center justify-between">
+                  <h2 className="text-base sm:text-lg md:text-xl font-bold text-white">Công việc phát sinh</h2>
                   <button
-                    onClick={() => navigate('/director/reports/ranking')}
-                    className="px-2 sm:px-3 py-1 sm:py-1.5 bg-white text-purple-600 rounded-lg hover:bg-purple-50 transition-colors font-semibold text-xs flex items-center space-x-1"
+                    onClick={() => navigate('/director/tasks/ad-hoc')}
+                    className="px-2 sm:px-3 py-1 sm:py-1.5 bg-white text-teal-600 rounded-lg hover:bg-teal-50 transition-colors font-semibold text-xs flex items-center space-x-1"
                   >
-                    <span className="hidden sm:inline">Nhân viên</span>
-                    <svg className="w-3 h-3 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => navigate('/director/reports/department-ranking')}
-                    className="px-2 sm:px-3 py-1 sm:py-1.5 bg-white text-purple-600 rounded-lg hover:bg-purple-50 transition-colors font-semibold text-xs flex items-center space-x-1"
-                  >
-                    <span className="hidden sm:inline">Phòng ban</span>
+                    <span className="hidden sm:inline">Xem tất cả</span>
                     <svg className="w-3 h-3 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </button>
                 </div>
+                <div className="p-3 sm:p-4">
+                  <div className="space-y-2 sm:space-y-3">
+                    {adHocTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        onClick={() => navigate(`/director/tasks/ad-hoc?highlight=${task.id}`)}
+                        className="p-2 sm:p-3 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs sm:text-sm font-semibold text-gray-900 truncate flex-1">{task.taskName || task.title}</p>
+                          <span className="text-xs font-medium text-teal-600 ml-2 flex-shrink-0">
+                            {task.status === 'PENDING' ? 'Chờ duyệt' : task.status}
+                          </span>
+                        </div>
+                        {(task.content || task.description || task.comment) && (
+                          <p className="text-xs text-gray-600 mb-1 line-clamp-2">
+                            {task.content || task.description || task.comment}
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-500">
+                          Người tạo: {task.userName || task.fullName || 'N/A'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </div>
+
+          {/* Xếp hạng - Hai cột riêng biệt */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            {/* Xếp hạng Nhân viên */}
+            <div className="bg-white rounded-lg sm:rounded-xl shadow-lg border border-purple-200 overflow-hidden">
+              <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 bg-gradient-to-r from-purple-600 to-purple-700 flex items-center justify-between">
+                <h2 className="text-base sm:text-lg md:text-xl font-bold text-white">Xếp hạng nhân viên</h2>
+                <button
+                  onClick={() => navigate('/director/reports/ranking')}
+                  className="px-2 sm:px-3 py-1 sm:py-1.5 bg-white text-purple-600 rounded-lg hover:bg-purple-50 transition-colors font-semibold text-xs flex items-center space-x-1"
+                >
+                  <span className="hidden sm:inline">Xem chi tiết</span>
+                  <svg className="w-3 h-3 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
               </div>
               
               <div className="divide-y divide-gray-200">
@@ -747,7 +766,25 @@ const DashboardPage = ({ role = 'user' }) => {
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
 
+            {/* Xếp hạng Phòng ban */}
+            <div className="bg-white rounded-lg sm:rounded-xl shadow-lg border border-indigo-200 overflow-hidden">
+              <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 bg-gradient-to-r from-indigo-600 to-indigo-700 flex items-center justify-between">
+                <h2 className="text-base sm:text-lg md:text-xl font-bold text-white">Xếp hạng phòng ban</h2>
+                <button
+                  onClick={() => navigate('/director/reports/department-ranking')}
+                  className="px-2 sm:px-3 py-1 sm:py-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors font-semibold text-xs flex items-center space-x-1"
+                >
+                  <span className="hidden sm:inline">Xem chi tiết</span>
+                  <svg className="w-3 h-3 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="divide-y divide-gray-200">
                 {/* Top 3 Phòng ban */}
                 <div className="p-3 sm:p-4 md:p-6">
                   <div className="flex items-center justify-between mb-4 sm:mb-6">
@@ -931,6 +968,10 @@ const DashboardPage = ({ role = 'user' }) => {
 
     </div>
   )
+}
+
+DashboardPage.propTypes = {
+  role: PropTypes.string
 }
 
 export default DashboardPage

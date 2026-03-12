@@ -18,6 +18,7 @@ import * as XLSX from 'xlsx'
 import dailyReportService from '../../services/dailyReportService'
 import { userService } from '../../services/userService'
 import { directorService } from '../../services/directorService'
+import { reportService } from '../../services/reportService'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorMessage from '../../components/ErrorMessage'
 import DateInput from '../../components/DateInput'
@@ -48,6 +49,8 @@ const ReportStatisticsPage = () => {
   const [historyData, setHistoryData] = useState([])
   const [performanceLoading, setPerformanceLoading] = useState(false)
   const [performanceData, setPerformanceData] = useState([])
+  const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7)) // Format: YYYY-MM
+  const [exportingAllReports, setExportingAllReports] = useState(false)
 
   useEffect(() => {
     loadUsers()
@@ -269,6 +272,38 @@ ${new Date().toLocaleString('vi-VN')}
     window.URL.revokeObjectURL(url)
   }
 
+  const handleExportAllEmployeesMonthlyReport = async () => {
+    try {
+      setExportingAllReports(true)
+      setError('')
+
+      // Tính toán ngày đầu và cuối tháng
+      const [year, month] = exportMonth.split('-').map(Number)
+      const startDate = new Date(year, month - 1, 1)
+      const endDate = new Date(year, month, 0, 23, 59, 59) // Ngày cuối cùng của tháng
+
+      const response = await reportService.exportAllEmployeesMonthlyReport(
+        startDate.toISOString(),
+        endDate.toISOString()
+      )
+
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      const fileName = `bao_cao_tat_ca_nhan_vien_${exportMonth}.xlsx`
+      link.setAttribute('download', fileName)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Lỗi khi xuất báo cáo tất cả nhân viên')
+    } finally {
+      setExportingAllReports(false)
+    }
+  }
+
 
   // Chuẩn bị dữ liệu cho biểu đồ kết hợp (công việc + điểm tự chấm)
   const combinedChartData = statistics
@@ -305,19 +340,41 @@ ${new Date().toLocaleString('vi-VN')}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Biểu đồ thống kê báo cáo</h1>
-          <div className="flex items-center gap-4">
-            <label className="text-sm font-medium text-gray-700">Ngày:</label>
-            <DateInput
-              value={reportDate}
-              onChange={(value) => setReportDate(value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <button
-              onClick={loadStatistics}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Tải lại
-            </button>
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700">Ngày:</label>
+              <DateInput
+                value={reportDate}
+                onChange={(value) => setReportDate(value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <button
+                onClick={loadStatistics}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Tải lại
+              </button>
+            </div>
+            
+            {/* Xuất báo cáo tất cả nhân viên */}
+            <div className="flex items-center gap-2 border-l border-gray-300 pl-4">
+              <label className="text-sm font-medium text-gray-700">Xuất báo cáo tháng:</label>
+              <input
+                type="month"
+                value={exportMonth}
+                onChange={(e) => setExportMonth(e.target.value)}
+                max={new Date().toISOString().slice(0, 7)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              />
+              <button
+                onClick={handleExportAllEmployeesMonthlyReport}
+                disabled={exportingAllReports}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <DocumentArrowDownIcon className="w-5 h-5" />
+                {exportingAllReports ? 'Đang xuất...' : 'Xuất tất cả'}
+              </button>
+            </div>
           </div>
         </div>
 

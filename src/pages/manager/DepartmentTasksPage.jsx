@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { taskService } from '../../services/taskService'
 import { departmentService } from '../../services/departmentService'
@@ -7,6 +7,7 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import Modal from '../../components/Modal'
 import EditTaskModal from '../../components/EditTaskModal'
 import FileUpload from '../../components/FileUpload'
+import Pagination from '../../components/Pagination'
 import { TASK_STATUS_LABELS, TASK_STATUS_COLORS } from '../../utils/constants'
 import { formatDateTime } from '../../utils/dateFormat'
 
@@ -38,6 +39,12 @@ const DepartmentTasksPage = () => {
   const [uploadingFiles, setUploadingFiles] = useState(false)
   const [searchTitle, setSearchTitle] = useState('')
   const [statusFilter, setStatusFilter] = useState('all') // 'all' or status value
+  
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
+  const PAGE_SIZE = 15
+  
   const navigate = useNavigate()
   const location = useLocation()
   
@@ -92,7 +99,25 @@ const DepartmentTasksPage = () => {
       // Nếu đã load departments xong nhưng không có department nào, set loading = false
       setLoading(false)
     }
-  }, [selectedDepartment, departmentsLoaded, searchTitle, statusFilter])
+  }, [selectedDepartment, departmentsLoaded, searchTitle, statusFilter, currentPage])
+
+  // Reset currentPage về 0 khi search hoặc filter thay đổi
+  // Sử dụng ref để track các giá trị trước đó
+  const prevFiltersRef = useRef({ searchTitle: '', statusFilter: 'all', selectedDepartment: null, departmentsLoaded: false })
+  
+  useEffect(() => {
+    const prev = prevFiltersRef.current
+    const hasChanged = 
+      searchTitle !== prev.searchTitle || 
+      statusFilter !== prev.statusFilter || 
+      selectedDepartment !== prev.selectedDepartment
+    
+    if (departmentsLoaded && prev.departmentsLoaded && hasChanged) {
+      setCurrentPage(0)
+    }
+    
+    prevFiltersRef.current = { searchTitle, statusFilter, selectedDepartment, departmentsLoaded }
+  }, [searchTitle, statusFilter, selectedDepartment, departmentsLoaded])
 
   const loadDepartments = async () => {
     try {
@@ -131,8 +156,10 @@ const DepartmentTasksPage = () => {
       setLoading(true)
       const searchTitleParam = searchTitle && searchTitle.trim() ? searchTitle.trim() : null
       const statusParam = statusFilter !== 'all' ? statusFilter : null
-      const response = await taskService.getTasksByDepartmentId(selectedDepartment, searchTitleParam, statusParam)
-      setTasks(response.data.result || [])
+      const response = await taskService.getTasksByDepartmentId(selectedDepartment, currentPage, PAGE_SIZE, searchTitleParam, statusParam)
+      const result = response.data.result
+      setTasks(result.content || [])
+      setTotalPages(result.totalPages || 1)
     } catch (err) {
       setError(err.response?.data?.message || 'Lỗi khi tải danh sách tasks')
     } finally {
@@ -663,6 +690,17 @@ const DepartmentTasksPage = () => {
                   </div>
                 )
               })}
+            </div>
+          )}
+          
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="mt-6">
+              <Pagination
+                currentPage={currentPage + 1}
+                totalPages={totalPages}
+                onPageChange={(page) => setCurrentPage(page - 1)}
+              />
             </div>
           )}
         </>

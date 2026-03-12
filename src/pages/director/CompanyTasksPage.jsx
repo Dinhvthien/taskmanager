@@ -35,6 +35,9 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
   const [error, setError] = useState('')
   const [currentPage, setCurrentPage] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
+  
+  // Page size constant for consistent pagination
+  const PAGE_SIZE = 15
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showEditRecurringModal, setShowEditRecurringModal] = useState(false)
@@ -142,18 +145,23 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
     setError('')
   }, [showDeleted])
 
+  // Reset currentPage to 0 when statusFilter changes (when navigating between tabs like /tasks, /tasks/hoanthanh, /tasks/choduyet)
+  useEffect(() => {
+    setCurrentPage(0)
+  }, [statusFilter])
+
   useEffect(() => {
     if (director && departmentsLoaded) {
       if (showDeleted) {
         // Trang deleted tasks: chỉ load deleted tasks, không load recurring
-        loadTasks()
+        loadTasks(false)
       } else if (activeTab === 'recurring') {
         // Tab "Lặp lại": Load tất cả tasks (không phân trang) để nhóm đúng
         loadAllTasks()
         loadRecurringTasks()
       } else {
-        // Tab "Thường": Load tasks với pagination từ backend (backend sẽ sắp xếp và filter)
-        loadTasks()
+        // Tab "Thường": Load tasks KHÔNG thuộc recurring
+        loadTasks(true)
         loadRecurringTasks()
       }
     }
@@ -299,11 +307,9 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
   }
 
   const groupTasksByRecurring = (tasksList) => {
-    // Filter tasks theo status nếu có
+    // KHÔNG filter ở client vì backend đã filter và phân trang rồi
+    // Filter ở client làm thay đổi số lượng mỗi trang
     let filteredTasks = tasksList
-    if (statusFilter) {
-      filteredTasks = tasksList.filter(task => task.status === statusFilter)
-    }
     
     if (!recurringTasks || recurringTasks.length === 0) {
       setTaskGroups([])
@@ -467,7 +473,7 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
   }
 
 
-  const loadTasks = async () => {
+  const loadTasks = async (excludeRecurring = false) => {
     if (!director) return
     
     try {
@@ -479,15 +485,20 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
       const response = await taskService.getTasksByDirectorId(
         director.directorId, 
         currentPage, 
-        15, 
+        PAGE_SIZE, 
         showDeleted, 
         statusFilter || null,
         searchTitleParam,
         deadlineStatusParam,
-        departmentIdParam
+        departmentIdParam,
+        excludeRecurring
       )
       const result = response.data.result
       const tasksList = result.content || []
+      
+      // API đã trả về đầy đủ thông tin (TaskResponse có departmentNames, assignedUserNames, v.v.)
+      // Không cần gọi getTaskById riêng để tránh race condition và N+1 queries
+      // Chỉ cần map departmentIds thành departmentNames nếu cần
       
       // Với deleted tasks, không load detail (API getTaskById không trả về deleted tasks)
       if (showDeleted) {
@@ -512,35 +523,29 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
         return
       }
       
-      // Load đầy đủ thông tin cho mỗi task (bao gồm departmentNames) - chỉ cho non-deleted tasks
-      const tasksWithDetails = await Promise.all(
-        tasksList.map(async (task) => {
-          try {
-            const detailResponse = await taskService.getTaskById(task.taskId)
-            return detailResponse.data.result || task
-          } catch (err) {
-            console.error(`Error loading task detail ${task.taskId}:`, err)
-            // Fallback: map từ departmentIds nếu có
-            if (task.departmentIds && task.departmentIds.length > 0 && departments.length > 0) {
-              const deptNames = task.departmentIds
-                .map(deptId => {
-                  const dept = departments.find(d => d.departmentId === deptId)
-                  return dept ? dept.departmentName : null
-                })
-                .filter(name => name !== null)
-              return {
-                ...task,
-                departmentNames: deptNames
-              }
-            }
-            return task
+      // Sử dụng trực tiếp dữ liệu từ API phân trang - đã có đầy đủ thông tin
+      // Map departmentIds thành departmentNames nếu cần
+      const tasksWithDeptNames = tasksList.map(task => {
+        if ((!task.departmentNames || task.departmentNames.length === 0) && 
+            task.departmentIds && task.departmentIds.length > 0 && 
+            departments.length > 0) {
+          const deptNames = task.departmentIds
+            .map(deptId => {
+              const dept = departments.find(d => d.departmentId === deptId)
+              return dept ? dept.departmentName : null
+            })
+            .filter(name => name !== null)
+          return {
+            ...task,
+            departmentNames: deptNames
           }
-        })
-      )
+        }
+        return task
+      })
       
-      // Sắp xếp tasks theo yêu cầu
-      const sortedTasks = sortTasks(tasksWithDetails)
-      setTasks(sortedTasks)
+      // Không sort ở client nữa vì会影响 phân trang
+      // Backend đã phân trang và sort rồi
+      setTasks(tasksWithDeptNames)
       setTotalPages(result.totalPages || 1)
     } catch (err) {
       setError(err.response?.data?.message || 'Lỗi khi tải danh sách tasks')
@@ -554,8 +559,9 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
     if (activeTab === 'recurring') {
       await loadAllTasks()
     } else {
-      // Tab "Thường": pagination từ backend (backend sẽ sắp xếp)
-      await loadTasks()
+      // Tab "Thường": excludeRecurring=true, showDeleted: excludeRecurring=false
+      const excludeRecurring = !showDeleted && activeTab === 'regular'
+      await loadTasks(excludeRecurring)
     }
   }
 
@@ -916,7 +922,7 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
     try {
       setError('')
       await taskService.restoreTask(task.taskId)
-      loadTasks() // Reload danh sách
+      loadTasks(false) // Reload danh sách (trang deleted)
     } catch (err) {
       setError(err.response?.data?.message || 'Lỗi khi khôi phục công việc')
     }
@@ -930,7 +936,7 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
     try {
       setError('')
       await taskService.hardDeleteTask(task.taskId)
-      loadTasks() // Reload danh sách
+      loadTasks(false) // Reload danh sách (trang deleted)
     } catch (err) {
       setError(err.response?.data?.message || 'Lỗi khi xóa vĩnh viễn công việc')
     }
@@ -965,20 +971,29 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
       return
     }
     if (tasks.length > 0) {
-      groupTasksByRecurring(tasks)
+      // Chỉ group tasks khi ở tab "Lặp lại", tab "Thường" dùng trực tiếp tasks từ API
+      if (activeTab === 'recurring') {
+        groupTasksByRecurring(tasks)
+      } else {
+        setRegularTasks([])
+        setTaskGroups([])
+      }
     } else {
       setRegularTasks([])
       setTaskGroups([])
     }
-  }, [recurringTasks, tasks, statusFilter, showDeleted])
+  }, [recurringTasks, tasks, showDeleted, activeTab])
 
 
   if (loading && tasks.length === 0) return <LoadingSpinner />
 
   // Filter tasks based on active tab
-  // Hiển thị taskGroups ở tab "recurring" (có thể có statusFilter)
+  // Tab "Thường": hiển thị tasks không thuộc recurring (đã được API lọc)
+  // Tab "Lặp lại": hiển thị taskGroups (đã được nhóm theo recurring)
   const displayTaskGroups = showDeleted ? [] : (activeTab === 'recurring' ? taskGroups : [])
-  const displayRegularTasks = showDeleted ? tasks : (activeTab === 'regular' ? regularTasks : [])
+  
+  // Tab "Thường": dùng trực tiếp tasks từ API (đã được lọc excludeRecurring)
+  const displayRegularTasks = showDeleted ? tasks : (activeTab === 'regular' ? tasks : (activeTab === 'recurring' ? regularTasks : []))
   
   // Filter tasks by search criteria
   const filterTasksBySearch = (tasksList) => {
@@ -1025,10 +1040,11 @@ const CompanyTasksPage = ({ showDeleted = false }) => {
     })).filter(group => group.tasks.length > 0)
   }
   
-  // Apply filters
-  const filteredTaskGroups = displayTaskGroups.length > 0 ? filterTaskGroups(displayTaskGroups) : []
-  const filteredRegularTasks = displayRegularTasks.length > 0 ? filterTasksBySearch(displayRegularTasks) : []
-
+  // Không filter ở client nữa vì backend đã filter và phân trang rồi
+  // Filter ở client làm thay đổi số lượng mỗi trang
+  const filteredTaskGroups = displayTaskGroups
+  const filteredRegularTasks = displayRegularTasks
+  
   return (
     <div>
       {/* Header */}
